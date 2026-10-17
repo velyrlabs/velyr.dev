@@ -1,0 +1,82 @@
+---
+title: Server and Multicore
+description: What exists today for serving HTTP and scaling across cores in Velyr, and what the accepted design still has to deliver.
+---
+
+Velyr's scaling model is one isolate per core with no shared mutable JS state (ADR-010, ADR-014). Each isolate runs on its own thread with a Tokio `current_thread` runtime; parallelism comes from running more isolates, not from sharing one. This page describes the pieces that exist and is explicit about the ones that do not.
+
+<Callout type="warning" title="There is no HTTP server API yet">
+`Velyr.serve` and `velyr serve` are accepted design (ADR-014) but are not implemented. A script run with `velyr run` cannot start an HTTP server today.
+</Callout>
+
+## What you can do today
+
+| Capability | How | Status |
+| --- | --- | --- |
+| HTTP client | `fetch()` through `io-http` (hyper, h1 and h2) and rustls | <Status value="available" /> |
+| Raw TCP server | `Velyr.listen({ hostname, port })` returns a listener you can iterate with `for await`; each connection has `readable` and `writable` Web Streams | <Status value="available" /> |
+| TLS server | `Velyr.listenTls({ cert, key, ... })` wraps the TCP listener | <Status value="available" /> |
+| Parallel work | `new Worker(...)`, see [Workers](/guide/workers) | <Status value="available" /> |
+| Listener quota | `quotas.listeners` in `velyr.json`, default 1024 | <Status value="available" /> |
+
+Listening requires a grant such as `--allow-listen=127.0.0.1:8080`. Without it the call is denied. See [Permissions](/guide/permissions).
+
+## HTTP host layer (library only)
+
+<Status value="experimental" />
+
+The `io-http` crate implements the server side that `Velyr.serve` is meant to sit on:
+
+- A hyper 1.x server that auto-detects HTTP/1 and HTTP/2, over plain TCP or rustls TLS. HTTP/3 is out of scope.
+- A `Handler` that turns an `HttpRequestParts` into an `HttpResponseParts` (an `Err` becomes a 500). Hyper types never leave the crate; bodies are bounded byte channels whose capacity provides backpressure.
+- `serve_connection` for one connection, `serve_listener` and `serve_listener_graceful` (with a grace period) for a listener driven by a cancellation token.
+- `Limits` with defaults of 64 KiB for headers, 16 MiB for bodies (larger known lengths get a 413), 30 s to receive a head and 60 s idle, plus accounting against the `body_bytes` quota.
+
+No JavaScript API calls these functions yet. Today only the fetch client in `web-fetch` uses the crate.
+
+## Planned server model (ADR-014)
+
+<Status value="planned" />
+
+ADR-014 was accepted on 2026-10-15. Everything below is design, not behavior.
+
+```js title="single isolate (planned)"
+Velyr.serve({ port: 8080 }, (request, info) => new Response("ok"));
+```
+
+```js title="multicore entry module (planned)"
+export default {
+  fetch(request, info) {
+    return new Response("ok");
+  },
+};
+```
+
+```bash
+velyr serve --workers=auto main.mjs
+```
+
+- **Single isolate**: `Velyr.serve({ port, hostname, signal, tls }, handler)` with a Web-standard `(Request, info) => Response` handler, returning a server with `finished` and `shutdown()`. `Velyr.upgradeWebSocket(request)` is the planned upgrade hook.
+- **Multicore**: a supervisor creates N isolates and each loads the same module, using its default export's `fetch`.
+- **Distribution**: on Linux and FreeBSD each worker binds its own listener with `SO_REUSEPORT`. On macOS and Windows a supervisor thread accepts and hands connections to workers round-robin. Phase 05 is meant to benchmark both strategies before any default changes.
+- **Worker count**: the default is 1. Multicore is opt-in with `--workers=N`, `--workers=auto`, or the `workers` key in `velyr.json`. `auto` is `min(available_parallelism honoring cgroup CPU quota, floor(memory_budget / per_worker_estimate))`, with a starting per-worker estimate of 64 MiB that Phase 05 must replace with a measurement.
+
+### Config status
+
+The `workers` key of `velyr.json` already parses: a positive integer or the string `"auto"`, and anything else is an error. Nothing reads the value yet. `velyr.json` is read by `velyr run`, but the config source states that the consumers land later.
+
+```json title="velyr.json"
+{ "workers": "auto" }
+```
+
+<Callout type="note">
+The `--workers` flag does not exist in the CLI. The only subcommand today is `velyr run`.
+</Callout>
+
+## Isolation guarantees that already hold
+
+- One mutable engine state per isolate, pinned to its thread.
+- Workers receive `parent ∩ requested ∩ deployment_policy` authority and charge the shared `workers` quota.
+- Default is no shared mutable JS state. The design prefers sharing only immutable artifacts (compiled code, source blobs, package metadata) in the future.
+
+Throughput and memory per worker have not been measured. Numbers will appear on [Performance](/guide/performance) when there is a method and raw data behind them.

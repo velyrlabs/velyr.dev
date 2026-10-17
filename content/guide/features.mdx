@@ -1,0 +1,82 @@
+---
+title: Features
+description: What Velyr can do today and what is still on the plan, one area at a time, with an honest status for each.
+---
+
+Each badge reflects what you can use through the `velyr` binary today, judged from the source and its tests, not from the plans.
+
+- <Status value="available" /> implemented and reachable from `velyr run`.
+- <Status value="experimental" /> implemented in the codebase but not exposed to users, or incomplete.
+- <Status value="planned" /> described in the design documents only.
+
+## Permissions <Status value="available" />
+
+Filesystem, network, environment, process, native-library and inspector access are denied by default and granted with flags or `velyr.json`. Deny rules always win, paths are normalized and symlink-checked, and network targets are checked again after DNS resolution. The process, native-library and inspector kinds are parsed but have no API to guard yet, so they are <Status value="experimental" />.
+
+Details: [Permissions](/guide/permissions), [Configuration](/config).
+
+## Modules <Status value="available" />
+
+ES modules are the native format: static `import`, dynamic `import()` and top-level `await`. Bare specifiers resolve through `node_modules` using `package.json` `exports` and `imports`. Remote (`https:`) imports, CommonJS and TypeScript are not available from the CLI yet. The CommonJS loader and the TypeScript transform (built on Oxc) exist as crates, so those are <Status value="experimental" />.
+
+Details: [Modules](/guide/modules).
+
+## Web APIs <Status value="available" />
+
+Implemented and installed in every isolate:
+
+- `URL`, `URLSearchParams`, `TextEncoder`, `TextDecoder`, `atob`, `btoa`
+- `Event`, `EventTarget`, `CustomEvent`, `AbortController`, `AbortSignal`, `DOMException`
+- `setTimeout`, `setInterval`, `queueMicrotask`, `performance`, `navigator`, `structuredClone`
+- Web Streams, including `CompressionStream` and `DecompressionStream`
+- `crypto` and `SubtleCrypto`
+- `fetch`, `Headers`, `Request`, `Response`
+- `MessageChannel`, `MessagePort`, `BroadcastChannel`
+
+Not present yet: `Blob`, `File`, `FormData`, `WebSocket` and `URLPattern` are <Status value="planned" />.
+
+Details: [Web APIs](/guide/web-apis).
+
+## Files, sockets and TLS <Status value="available" />
+
+Runtime-specific APIs live under a `Velyr` namespace rather than on standard prototypes: `Velyr.readFile`, `readTextFile`, `writeFile`, `writeTextFile`, `stat`, `env`, `permissions.query`, `connect`, `listen`, `connectTls`, `listenTls` and `startTls`. All of them are present in every script and fail with `VELYR_PERMISSION_DENIED` without a grant.
+
+## HTTP server <Status value="experimental" />
+
+A hyper-based HTTP/1 and HTTP/2 server and client exist as a Rust crate. Its client half powers `fetch`; the server half is not exposed. There is no JavaScript server API yet. `Velyr.serve` and `velyr serve` are <Status value="planned" />.
+
+Details: [Server](/guide/server).
+
+## Workers <Status value="available" />
+
+Module workers run on their own thread with their own isolate, and talk to the parent through structured-clone messages. A worker's permissions are the intersection of its parent's and what it asks for. Multicore serving (distributing connections across workers, `--workers=auto`) is <Status value="planned" />.
+
+Details: [Workers](/guide/workers).
+
+## Resource quotas <Status value="available" />
+
+The `quotas` key in `velyr.json` caps files, sockets, listeners, workers, timers and body bytes. Exceeding a limit raises `VELYR_QUOTA_EXCEEDED`. See [Configuration](/config).
+
+## Node compatibility <Status value="planned" />
+
+`node:` modules, `Buffer`, `process` and N-API are not implemented. A CommonJS `require` loader exists as a crate but is not linked into the binary. Node compatibility is designed to be an optional layer, not part of the core.
+
+Details: [Node compatibility](/guide/node-compat).
+
+## Packages <Status value="experimental" />
+
+The `package.json` model, npm semver, registry client, content-addressed cache and lockfile code exist as a crate. No command uses them, so `velyr add`, `velyr install` and `velyr remove` are <Status value="planned" />.
+
+## Plugins <Status value="planned" />
+
+WebAssembly Components are the preferred plugin direction. No plugin crate exists yet.
+
+Details: [Plugins](/plugins).
+
+## Native JavaScript engine <Status value="experimental" />
+
+Velyr runs on V8 today. A second engine written in Rust is under development behind the same engine interface. It is selectable with `--engine native`, an experimental, feature-gated option, and its own source notes that modules and promises are not implemented yet.
+
+## Observability <Status value="available" />
+
+Structured logs go to stderr in `pretty` or `json` format, filtered by `VELYR_LOG`. Permission denials produce a structured event. See [Command Line Interface](/guide/cli).

@@ -1,0 +1,202 @@
+---
+title: Permission Options
+description: Reference for every permission key in `velyr.json` and its matching `velyr run` flag, including grammar, precedence and which kinds are enforced today.
+status: available
+---
+
+Velyr denies filesystem, network, environment, process, native-loading and inspector access by default. You grant authority with CLI flags or with the `permissions` block of `velyr.json`. Both use one grammar, so every flag has a config key of the same name without the leading dashes. For a conceptual overview, see the [permissions guide](/guide/permissions).
+
+## How the block works
+
+<Callout type="warning" title="Flags replace the block">
+If any permission flag is present on the command line, including a lone `--deny-*` or `-A`, the `permissions` block in `velyr.json` is ignored entirely. Nothing is merged. Quotas are unaffected because they have no flags.
+</Callout>
+
+Rules shared by all keys:
+
+- **Config values.** Each key takes `true`, `false`, or a list of strings. `true` means the whole kind, `false` and `[]` mean the key is absent. A list scopes the grant.
+- **CLI values.** A bare flag (`--allow-net`) means the whole kind. A scoped value needs an equals sign and is comma separated: `--allow-read=./data,./public`. A space-separated value is not accepted.
+- **Precedence.** An explicit deny beats an explicit scoped allow, which beats the default deny. A deny entry wins even over `-A`.
+- **No prompts.** A denied operation fails immediately with a `VELYR_PERMISSION_DENIED` error of the form `<kind> access to <target> denied`. The target is redacted where it could leak a secret.
+- **Invalid patterns fail closed.** An invalid allow pattern grants nothing. An invalid deny pattern denies everything of that kind.
+- **Unknown keys are errors.** `"allow-nope": true` fails config loading and names the key.
+- **Paths resolve against the working directory.** Relative paths in a list, in the config file or on the command line, are resolved against the directory where `velyr run` was started, not against the directory of `velyr.json`.
+- **Same grammar for workers.** The `velyr.permissions` option of `new Worker(...)` accepts the same keys in the same kebab-case spelling. See the [workers guide](/guide/workers).
+
+Status of each kind:
+
+| Kind | Allow key | Deny key | Enforced today by |
+| --- | --- | --- | --- |
+| Filesystem read | `allow-read` | `deny-read` | file APIs |
+| Filesystem write | `allow-write` | `deny-write` | file APIs |
+| Network connect | `allow-net` | `deny-net` | `fetch`, sockets, TLS |
+| Network listen | `allow-listen` | `deny-listen` | listeners |
+| Environment | `allow-env` | `deny-env` | environment ops |
+| Process spawn | `allow-run` | `deny-run` | nothing yet |
+| Native loading | `allow-native` | `deny-native` | nothing yet |
+| Remote imports | `allow-import` | `deny-import` | nothing yet |
+| Inspector | `inspect` | `deny-inspect` | nothing yet |
+
+For the last four rows the flag is parsed, validated, and compiled into the capability set, and it can be inspected through `Velyr.permissions.query`. No feature consumes the capability yet: there is no subprocess API, no native addon loader, no remote module loader (`https:` imports are unsupported) and no inspector server. Treat them as reserved names.
+
+## allow-all <Status value="available" />
+
+- **Type:** `boolean`
+- **Default:** `false`
+- **CLI:** `-A`, `--allow-all`
+
+Grants read, write, net, listen, env, run and import for their whole kind. It does not grant native loading or the inspector. Velyr prints `warning: --allow-all grants every permission except native loading and the inspector` to stderr on every run that uses it. Deny keys still apply.
+
+```json title="velyr.json"
+{ "permissions": { "allow-all": true, "deny-env": ["SECRET_*"] } }
+```
+
+Use it for local experiments. In CI or production, prefer scoped grants so a dependency cannot widen what your code can do.
+
+## allow-read <Status value="available" />
+
+- **Type:** `boolean | string[]` (paths)
+- **Default:** absent (denied)
+- **CLI:** `--allow-read[=PATHS]`
+
+Allows reading the listed files or directories. A directory covers its whole subtree, compared component by component, so `./data` does not cover `./data2`. Paths are normalized and resolved through symlinks before comparison, using the longest existing prefix, so a path that does not exist yet can still be granted. A path that tries to leave the granted directory with `..` is not covered.
+
+```json title="velyr.json"
+{ "permissions": { "allow-read": ["./data", "./config.json"] } }
+```
+
+A bare `--allow-read` grants the whole filesystem. Importing local modules does not need this flag, because Velyr grants the project root implicitly (see [Implicit local import authority](#implicit-local-import-authority)).
+
+## allow-write <Status value="available" />
+
+- **Type:** `boolean | string[]` (paths)
+- **Default:** absent (denied)
+- **CLI:** `--allow-write[=PATHS]`
+
+Same path semantics as `allow-read`, for writes. Write does not imply read.
+
+```json title="velyr.json"
+{ "permissions": { "allow-write": ["./tmp"] } }
+```
+
+## allow-net <Status value="available" />
+
+- **Type:** `boolean | string[]` (hosts)
+- **Default:** absent (denied)
+- **CLI:** `--allow-net[=HOST[:PORT]]`
+
+Allows outbound connections. Each entry is one of:
+
+| Form | Meaning |
+| --- | --- |
+| `example.com` | That exact host name, any port. |
+| `example.com:443` | That host, one port. |
+| `*.example.com` | Strict subdomains only. It does not cover `example.com` itself. |
+| `*` | Any host name. |
+| `203.0.113.7`, `[::1]:80` | An IP literal, optionally with a port. IPv4-mapped IPv6 is normalized. |
+| `10.0.0.0/8` | An IPv4 CIDR range. |
+
+Only a single port can be written; there is no port range syntax. Omitting the port allows every port.
+
+Network checks run in two phases. The host name is judged before DNS, then every resolved address is checked again. A grant by host name never reaches a non-public address (private, loopback, link-local and similar ranges) unless an explicit IP or CIDR grant covers it, or the origin is exactly `localhost`, which reaches loopback only. A bare `*` is a host name grant, so it does not reach private IP literals either. This blocks DNS rebinding, and it means `--allow-net=*` is not a way to reach an internal service.
+
+```json title="velyr.json"
+{
+  "permissions": {
+    "allow-net": ["api.example.com:443", "*.cdn.example.com", "10.1.0.0/16"]
+  }
+}
+```
+
+## allow-listen <Status value="available" />
+
+- **Type:** `boolean | string[]` (addresses)
+- **Default:** absent (denied)
+- **CLI:** `--allow-listen[=ADDR[:PORT]]`
+
+Allows binding a listener. Entries are IP literals (with an optional port) or IPv4 CIDR ranges. Host names are not valid listen addresses and grant nothing. A bare flag covers every IPv4 and IPv6 address and every port.
+
+```json title="velyr.json"
+{ "permissions": { "allow-listen": ["127.0.0.1:8080", "::1"] } }
+```
+
+## allow-env <Status value="available" />
+
+- **Type:** `boolean | string[]` (variable names)
+- **Default:** absent (denied)
+- **CLI:** `--allow-env[=NAMES]`
+
+Allows reading and writing the named environment variables. A name is matched exactly, or by prefix when it ends in a single `*`, so `AWS_*` matches `AWS_KEY`. A `*` anywhere else is not a wildcard. Enumerating the environment returns only the variables you are allowed to read. There is no separate read-only grant.
+
+```json title="velyr.json"
+{ "permissions": { "allow-env": ["DATABASE_URL", "AWS_*"] } }
+```
+
+## allow-run <Status value="experimental" />
+
+- **Type:** `boolean | string[]` (program names)
+- **Default:** absent (denied)
+- **CLI:** `--allow-run[=PROGRAMS]`
+
+Reserved for process spawning. The value is validated and compiled, using the same exact or trailing `*` matching as `allow-env`, but Velyr has no subprocess API yet, so granting it changes nothing. It is included in `-A`.
+
+## allow-native <Status value="experimental" />
+
+- **Type:** `boolean | string[]` (paths)
+- **Default:** absent (denied)
+- **CLI:** `--allow-native[=PATHS]`
+
+Reserved for loading native addons, with the same path semantics as `allow-read`. No loader exists yet. It is never included in `-A`, by design: native code can bypass every other permission, so it always needs an explicit grant.
+
+## allow-import <Status value="experimental" />
+
+- **Type:** `boolean | string[]` (hosts)
+- **Default:** absent (denied)
+- **CLI:** `--allow-import[=HOSTS]`
+
+Reserved for remote module imports, using the host grammar of `allow-net`. The module loader rejects `http:` and `https:` specifiers today, so this has no effect. It is included in `-A`.
+
+## inspect <Status value="experimental" />
+
+- **Type:** `boolean | string[]` (addresses)
+- **Default:** absent (denied)
+- **CLI:** `--inspect[=ADDR]`
+
+Reserved for the debugger or inspector port. Note the spelling: the allow key is `inspect`, not `allow-inspect`, and the deny key is `deny-inspect`. A bare value means `127.0.0.1`. If you give `host:port`, the port is validated and then dropped, since the capability carries only the address. No inspector server exists yet, and it is never included in `-A`.
+
+## deny-read, deny-write, deny-net, deny-listen, deny-env <Status value="available" />
+
+- **Type:** `boolean | string[]`, same value grammar as the matching allow key
+- **Default:** absent (no explicit deny)
+- **CLI:** `--deny-read[=PATHS]`, `--deny-write[=PATHS]`, `--deny-net[=HOST[:PORT]]`, `--deny-listen[=ADDR[:PORT]]`, `--deny-env[=NAMES]`
+
+A deny entry always wins over any allow entry, including `allow-all`. A bare deny, or `true` in the config, blocks the whole kind. Combine a broad allow with narrow denies to carve out exceptions.
+
+```json title="velyr.json"
+{
+  "permissions": {
+    "allow-net": true,
+    "deny-net": ["169.254.169.254", "*.internal.example.com"],
+    "allow-env": true,
+    "deny-env": ["SECRET_*"]
+  }
+}
+```
+
+Remember that on the command line any of these flags replaces the config block, so `velyr run --deny-net=evil.example main.js` runs with the config's allows discarded.
+
+## deny-run, deny-native, deny-import, deny-inspect <Status value="experimental" />
+
+- **Type:** `boolean | string[]`, same value grammar as the matching allow key
+- **Default:** absent (no explicit deny)
+- **CLI:** `--deny-run[=PROGRAMS]`, `--deny-native[=PATHS]`, `--deny-import[=HOSTS]`, `--deny-inspect[=ADDR]`
+
+Parsed and compiled like the allow keys above, and equally without a consumer today. A bare `--deny-inspect` denies every address.
+
+## Implicit local import authority
+
+Not an option, but it affects every run. Velyr always grants the right to import local modules under the project root. The root is the directory containing `velyr.json`, or the entry file's directory when there is no config. This grant never lets code read arbitrary files: importing a module and calling the file API are separate permissions. A module outside the root can be imported only if `allow-read` covers it. A denied module import fails with a `VELYR_PERMISSION_DENIED` error such as `import-local access to module denied`.
+
+## Value limits and validation
+
+Values are checked when the run starts, before user code executes. A bad value fails with `error: invalid value "<value>" for --<flag>: <reason>`. The reasons are listed in [Configuring Velyr](/config#errors-on-bad-configuration).

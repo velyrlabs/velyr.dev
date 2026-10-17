@@ -1,0 +1,86 @@
+---
+title: Security Model
+description: How Velyr limits what scripts can do, what the threat model does and does not promise, and how the code base is kept auditable.
+---
+
+Velyr's first principle is secure by default (ADR-003): a script receives only the host authority it is explicitly given. This page summarizes the model. The authoritative sources are `docs/security/` and `docs/SECURITY.md` in the repository.
+
+<Callout type="warning" title="Not a hostile multi-tenant sandbox">
+The threat model says it directly: memory-safe Rust and permissions do not automatically make Velyr a hardened sandbox for arbitrary hostile code. Any claim of hostile multi-tenant isolation requires a dedicated security review and, likely, OS, container or VM boundaries on top of runtime capabilities. Velyr has not had an external security audit.
+</Callout>
+
+## Default deny and capabilities
+
+A fresh `velyr run` can import modules from the project root and nothing else. File, network, environment, subprocess, native and inspector access are denied until granted. All host operations pass through one capability check at the host-op boundary.
+
+| Capability | Flag (allow / deny) |
+| --- | --- |
+| Filesystem read / write | `--allow-read`, `--allow-write` / `--deny-read`, `--deny-write` |
+| Network connect | `--allow-net` / `--deny-net` |
+| Network listen | `--allow-listen` / `--deny-listen` |
+| Environment | `--allow-env` / `--deny-env` |
+| Subprocess | `--allow-run` / `--deny-run` |
+| Remote imports | `--allow-import` / `--deny-import` |
+| Native code | `--allow-native` / `--deny-native` |
+| Inspector | `--inspect` / `--deny-inspect` |
+
+`-A` / `--allow-all` grants everything except native loading and the inspector, and prints a warning. Precedence is explicit deny, then explicit scoped allow, then default deny. There is no interactive prompt in headless mode. Scoping, config-file syntax and examples are on [Permissions](/guide/permissions) and [Permissions configuration](/config/permissions).
+
+Some capabilities have no operation behind them yet: for example no subprocess API, native loader or inspector is exposed by the CLI today. The flags and the capability model exist so the policy is fixed before the features arrive.
+
+Scripts can probe their own authority with `Velyr.permissions.query(...)`, which never prompts and emits no denial event. Denials surface as errors with the code `VELYR_PERMISSION_DENIED`.
+
+## Workers
+
+A worker's authority is `parent ∩ requested ∩ deployment_policy`, so a worker can never widen what its parent holds. See [Workers](/guide/workers).
+
+## Resource quotas
+
+Per-class counters (files, sockets, listeners, workers, timers, in-flight body bytes) stop a script from exhausting the host. Operations past the limit fail with a quota error, and bounded message queues fail rather than grow. Limits are set in the `quotas` block of `velyr.json`; defaults are listed on [Workers](/guide/workers#resource-quotas). Quotas bound counts and body bytes; they are not a CPU or total-memory sandbox.
+
+## Threat model summary
+
+The assets include the host filesystem, network identity, environment secrets, subprocess execution, other isolates, the package cache and lockfile integrity, and native memory. The adversaries considered are malicious or compromised npm dependencies, malicious input to the parser or engine, untrusted user scripts, hostile network peers, malicious native addons, package substitution, denial-of-service workloads and cross-isolate attackers.
+
+| Risk | Planned control | Status |
+| --- | --- | --- |
+| Information disclosure | Deny by default, scoped grants | <Status value="available" /> |
+| Module identity confusion | Canonical module IDs (file URL of real path) | <Status value="available" /> |
+| Worker privilege escalation | Permission intersection | <Status value="available" /> |
+| Resource exhaustion | Quotas, request and body limits | <Status value="available" /> |
+| Package substitution | Lockfile, integrity verification | <Status value="experimental" /> |
+| Audit trail | Structured permission and host-op events (tracing) | <Status value="experimental" /> |
+| Engine hardening | Optional `--jitless` deployment mode (ADR-009) | <Status value="planned" /> |
+
+Known gap, documented in the module host: resolution checks that a target exists before consulting permissions, so the existence of files outside the grant can be observed. See [Modules](/guide/modules#known-limits).
+
+## Native extensions
+
+Rust crates compiled into Velyr are the only code that runs in-process by default. Node-API addons, FFI libraries and native plugins are classed as restricted: they can read process memory, bypass runtime permissions, crash the process and call OS APIs directly. So Node-API compatibility does not imply sandbox safety.
+
+The policy is that native loading is off by default, requires an explicit grant, is audited in telemetry, and can be disabled entirely by a deployment profile. Out-of-process addon hosts are under investigation. For new plugins the recommended direction is WebAssembly components with injected capabilities. None of these layers exists yet (`compat-napi` is a reserved name). See [Node and npm compatibility](/guide/node-compat) and [Plugins](/plugins).
+
+## Supply chain
+
+For Velyr's own Rust dependencies:
+
+- The workspace sets `unsafe_code = "forbid"`. A crate that needs `unsafe` must be listed in `unsafe-allowlist.txt` (today `engine-v8`, `engine-gc`, `engine-vm` and the reserved `compat-napi`). The `engine-v8` crate downgrades the lint to a warning because it wraps V8. CI runs `scripts/ci/check-unsafe.sh`, which fails when any other crate does not inherit the workspace lints.
+- `deny.toml` is checked by `cargo deny` in CI: yanked crates are denied, licenses must be on an allow-list (MIT, Apache-2.0, BSD-2/3-Clause, ISC, Unicode-3.0, Zlib, MPL-2.0 for dependency use only, CC0-1.0), and only crates.io is an accepted registry (unknown registries and git sources are denied). One advisory is ignored with a written reason (`RUSTSEC-2024-0436`, an unmaintained crate pulled in by the `v8` crate).
+- A scheduled security workflow runs `cargo deny` and `cargo audit` on pushes, pull requests and daily.
+- Versions of the HTTP and TLS stack are pinned exactly in `crates/io-http/Cargo.toml`, and CI also checks crate dependency boundaries.
+- The `fuzz/` workspace has targets for error codes, permission path checks, module resolution, package `exports` resolution and tarball extraction.
+
+For packages you run:
+
+- Package installation (not yet shipped) is designed around integrity verification, a deterministic lockfile, a content-addressed cache and lifecycle scripts denied by default. See [Node and npm compatibility](/guide/node-compat).
+- Release provenance, SBOMs and signed releases are listed as goals for before a stable release, not as present features.
+
+## Reporting a vulnerability
+
+The repository does not yet contain a root `SECURITY.md`; `docs/SECURITY.md` lists it, a private disclosure channel and a security advisories process as required before a public beta. Until a channel is published, do not post exploit details in a public issue. Check the repository for a `SECURITY.md` or the project's security advisories page, and use the private channel it names.
+
+Severity guidance from the program:
+
+- **Critical**: native code execution from ordinary JS without a native or process grant, permission bypass exposing the filesystem, environment or network, cross-isolate memory corruption.
+- **High**: escape of a scoped permission, crafted package or source causing reliable memory corruption, an inspector exposed remotely without authorization.
+- **Medium and low**: assessed by exploitability, authority gained, impact and deployment prerequisites.

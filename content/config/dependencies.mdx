@@ -1,0 +1,98 @@
+---
+title: Dependency Options
+description: Reference for package installation, lockfile and lifecycle-script options, which are designed in ADR-013 but not yet exposed by the CLI.
+status: planned
+---
+
+<Callout type="warning" title="Nothing on this page is configurable today">
+The `velyr` binary has one command, `velyr run`. The install workflow below is the accepted design (ADR-013, SPEC section 8 and the supply-chain notes). Library code for the lockfile, registry client and package cache exists in the `compat-npm` crate, but no CLI command or `velyr.json` key reaches it. `velyr.json` has no dependency-related keys, and unknown keys are rejected.
+</Callout>
+
+What does work today is resolution of bare specifiers at run time. `velyr run` resolves them through `node_modules` and the `exports` and `imports` fields of `package.json`, using the conditions `velyr`, `import` and `default`. Velyr does not install the packages for you; use a populated `node_modules` directory.
+
+## velyr install <Status value="planned" />
+
+- **Type:** command
+- **Default:** n/a
+- **CLI:** `velyr install`
+
+Resolves the dependencies in `package.json`, writes `velyr.lock`, and populates `node_modules` with a hoisted, npm-compatible layout. Files are hardlinked from a content-addressed global cache. Packages are verified against the SRI `sha512` integrity from registry metadata, and cache writes are atomic (staged, then renamed), so a rejected tarball never leaves a partial directory.
+
+## velyr add and velyr remove <Status value="planned" />
+
+- **Type:** commands
+- **Default:** n/a
+- **CLI:** `velyr add <pkg>[@range]...`, `velyr remove <pkg>...`
+
+Edit dependencies and update the lockfile. With `install`, these are the only commands allowed to write `velyr.lock`. `velyr run` never writes it.
+
+## --frozen <Status value="planned" />
+
+- **Type:** `boolean`
+- **Default:** `false`
+- **CLI:** `velyr install --frozen`
+
+Fails on any difference between `package.json` and `velyr.lock` instead of updating the lockfile. This is intended for CI. The drift check exists in the library and reports `velyr.lock is out of date with package.json:` followed by one line per affected package.
+
+## --allow-scripts <Status value="planned" />
+
+- **Type:** `string[]` (package names)
+- **Default:** none (all lifecycle scripts denied)
+- **CLI:** `velyr install --allow-scripts=esbuild,sharp`
+
+Lifecycle scripts (`preinstall`, `install`, `postinstall`, `prepare`) are denied by default, in line with the secure-by-default rule in the SPEC. This option is the package-scoped exception, so you opt in per package rather than for the whole tree. The lockfile records `hasInstallScript` per package so you can see which ones would need it.
+
+## --allow-all-scripts <Status value="planned" />
+
+- **Type:** `boolean`
+- **Default:** `false`
+- **CLI:** `velyr install --allow-all-scripts`
+
+Runs lifecycle scripts for every package and prints a warning. The trade-off is plain: it is convenient, and it restores the arbitrary-code-at-install risk the default is meant to remove. Prefer `--allow-scripts` with a short list.
+
+## Registry configuration <Status value="planned" />
+
+- **Type:** `.npmrc` entries
+- **Default:** not specified in the design documents
+- **CLI:** none
+
+Registry URLs and `_authToken` are read from `.npmrc` by the installer only. Tokens are never exposed to user JavaScript. A parser for `.npmrc` exists in the library; it is not wired to a command.
+
+## Global cache <Status value="planned" />
+
+- **Type:** directory (not configurable)
+- **Default:** an `npm` directory inside the per-user cache directory that the `directories` crate selects for the application name `velyr`
+- **CLI:** none
+
+Each package is stored extracted under its `sha512` hex digest and shared across projects. No option for relocating the cache is specified.
+
+## velyr.lock format <Status value="planned" />
+
+The file is JSON with sorted keys, two-space indentation and a trailing newline, so diffs are stable and reviewable. The reader and writer exist and are tested in the library; the first version number is `1`.
+
+```json title="velyr.lock"
+{
+  "importers": {
+    ".": { "dependencies": { "left-pad": "^1.3.0" } }
+  },
+  "lockfileVersion": 1,
+  "packages": {
+    "left-pad@1.3.0": {
+      "integrity": "sha512-<base64 digest>",
+      "resolved": "https://registry.example/left-pad/-/left-pad-1.3.0.tgz"
+    }
+  }
+}
+```
+
+The `resolved` URL and digest above are placeholders. Optional per-package fields are `dependencies`, `optionalDependencies`, `os`, `cpu` and `hasInstallScript`. Do not edit the file by hand; the install commands are meant to own it.
+
+## Export conditions <Status value="available" />
+
+- **Type:** fixed list
+- **Default:** ESM resolves `velyr`, `import`, `default`
+- **CLI:** none
+
+This one is applied today when `velyr run` resolves a bare specifier through `package.json` `exports`. The design adds `node` only when Node compatibility is linked, and replaces `import` with `require` for CommonJS. The list is not user-configurable.
+
+See also [Node compatibility](/guide/node-compat) and [Modules](/guide/modules).

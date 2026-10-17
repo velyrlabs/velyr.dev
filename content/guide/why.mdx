@@ -1,0 +1,62 @@
+---
+title: Why Velyr
+description: The five principles behind Velyr, the problems they address, and the trade-offs they cost.
+---
+
+Velyr is a JavaScript and TypeScript runtime written in Rust. Its stated goal is to maximize useful work per CPU core and per gigabyte of memory while keeping a modern developer experience. It does not claim that Rust makes it faster than Node: the product requirements say success has to be shown with reproducible workloads, and none have been published yet.
+
+## The problems
+
+The design documents start from a short list of costs that server JavaScript tends to carry:
+
+- Programs and their dependencies run with the full authority of the user, so a compromised package can read files, environment variables and the network.
+- Multicore scaling usually means several processes, each with its own copy of the heap.
+- Compatibility layers are always present, even when an application does not use them.
+- Performance, conformance and security regressions are often noticed late.
+
+## The five principles
+
+### Secure by default
+
+A script has no filesystem, network, environment, process or native-library access until you grant it, per kind and per target. Deny rules beat allow rules, workers can only narrow authority, and there are no prompts.
+
+Trade-off: programs written for runtimes that allow everything need explicit grants. The design notes accept this. See [Permissions](/guide/permissions).
+
+### Web standards first
+
+Portable Web APIs (`fetch`, `Request`, `Response`, Web Streams, `URL`, `AbortController`) come before Node-specific equivalents. Velyr-specific features live under a `Velyr` namespace and are not added to standard prototypes.
+
+Trade-off: code that depends on Node APIs needs a compatibility layer that does not exist yet.
+
+### Node compatibility is optional
+
+Node core modules, CommonJS, npm behavior and Node-API are meant to be layers, not requirements of the kernel, so a small build can leave them out.
+
+Trade-off: ecosystem compatibility is a later phase. Today, `node:` modules are not available. The project also states it will report compatibility per API and per package, never as a single "100%" figure. See [Node compatibility](/guide/node-compat).
+
+### Everything measurable
+
+Performance, conformance and compatibility are meant to have gates: Test262 for the language, Web Platform Tests for Web APIs, and benchmark budgets that block merges. A benchmark harness and a Test262 runner exist in the repository.
+
+Trade-off: this is mostly infrastructure today. The benchmark baselines directory is empty, the budgets are marked provisional, and no Web Platform Tests runner exists yet.
+
+### Everything modular
+
+Features are separate crates behind interfaces, so a build links only what its profile needs. The JavaScript engine is one of those interfaces.
+
+Trade-off: the build profiles (`minimal`, `web`, `node`, `full`) are defined as Cargo features, but nothing is gated on them yet, so every build installs the same globals today.
+
+## Decisions worth knowing
+
+| Decision | Why | Cost |
+| --- | --- | --- |
+| V8 is the first engine (ADR-009) | Language conformance, JIT speed and `WebAssembly` from day one. A native engine is a multi-year effort and cannot block the first phases. | A large native dependency. Velyr relies on the V8 project for the language. |
+| A native Rust engine is developed in parallel | Long-term control over footprint and embedding. | It is not usable yet. |
+| ES modules are canonical (ADR-006) | Resolver design is not constrained by `require` internals. | CommonJS needs an extra layer. |
+| Tokio hosts async I/O (ADR-005) | A mature async runtime. | One isolate is single-threaded; multicore means several isolates. |
+| Isolates do not share a mutable heap | Keeps engine state simple and safe. | Workers communicate by copying messages. |
+| WebAssembly Components for plugins (ADR-008) | Capabilities and budgets can be explicit. | Plugins are not implemented yet. |
+
+## Built on
+
+Velyr stands on other projects: V8 for JavaScript execution, Tokio for the async runtime, Oxc for parsing and TypeScript stripping, hyper for HTTP, rustls for TLS, and the Test262 suite for language conformance. The Web Platform Tests are a planned target for Web API conformance.

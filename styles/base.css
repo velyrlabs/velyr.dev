@@ -1,0 +1,259 @@
+:root {
+  --ink: #0e0f0c;
+  --ink-raised: #1c1e19;
+  --bone: #f2f0e9;
+  --signal: #c6f432;
+  --signal-deep: #5e7a00;
+  --graphite: #5b5e55;
+  --ash: #a6a99e;
+  --deny: #e5482d;
+  --deny-deep: #b8321a;
+  --amber: #f2b636;
+
+  --bg: var(--ink);
+  --bg-raised: var(--ink-raised);
+  --fg: var(--bone);
+  --fg-muted: var(--ash);
+  --line: rgb(242 240 233 / 0.14);
+  --line-strong: rgb(242 240 233 / 0.28);
+  --accent: var(--signal);
+  --accent-text: var(--signal);
+  --on-accent: var(--ink);
+  --error: var(--deny);
+  --warn: var(--amber);
+  --mark-bar: var(--bone);
+  --mark-token: var(--signal);
+
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --font-code: var(--font-mono), ui-monospace, monospace;
+  --header-h: 60px;
+  --gutter: 16px;
+  --radius: 2px;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: var(--bone);
+  --bg-raised: #e8e6de;
+  --fg: var(--ink);
+  --fg-muted: var(--graphite);
+  --line: rgb(14 15 12 / 0.14);
+  --line-strong: rgb(14 15 12 / 0.3);
+  --accent: var(--signal-deep);
+  /* Signal Deep is 4.3:1 on Bone (large text only); small accent text needs this darker step for AA. */
+  --accent-text: #526b00;
+  --on-accent: var(--bone);
+  --error: var(--deny-deep);
+  --warn: #7a4f00;
+  --mark-bar: var(--ink);
+  --mark-token: var(--signal-deep);
+  color-scheme: light;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 32px;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--header-h) + 16px);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.6;
+  font-weight: 400;
+  overflow-x: hidden;
+  /* header, page, footer: the footer sits at the bottom on short pages (404). */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 800;
+  font-stretch: 125%;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+p {
+  margin: 0;
+}
+
+img,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-code);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.label {
+  font-family: var(--font-code);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -100px;
+  z-index: 100;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
+.container {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  font: 600 15px/1 var(--font-sans);
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.button:hover {
+  border-color: var(--fg);
+}
+
+.button-primary {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--fg);
+  border-color: var(--line);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  font-family: var(--font-code);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.status-glyph {
+  font-size: 9px;
+}
+
+.status[data-status="available"] {
+  color: var(--accent-text);
+}
+
+.status[data-status="experimental"] {
+  color: var(--warn);
+}
+
+.status[data-status="planned"] {
+  color: var(--fg-muted);
+  border-style: dashed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

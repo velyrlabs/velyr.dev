@@ -1,0 +1,420 @@
+.section-kicker {
+  color: var(--fg-muted);
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: clamp(28px, 4.4vw, 48px);
+  max-width: 20ch;
+}
+
+.text-link {
+  display: inline-block;
+  margin-top: 20px;
+  font-weight: 600;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 4px;
+}
+
+/* Hero */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+  padding-top: 48px;
+  padding-bottom: 48px;
+}
+
+@media (min-width: 1024px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 56px;
+    padding-top: 72px;
+    min-height: calc(100dvh - var(--header-h));
+  }
+}
+
+.hero-title {
+  font-size: clamp(38px, 7vw, 84px);
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.hero-title-line {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.hero-sub {
+  margin-top: 24px;
+  max-width: 46ch;
+  color: var(--fg-muted);
+  font-size: 19px;
+}
+
+.hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.install {
+  margin-top: 36px;
+  max-width: 560px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.install-label {
+  color: var(--fg-muted);
+}
+
+.install-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 10px 10px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.install-row code {
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.install-prompt {
+  color: var(--fg-muted);
+}
+
+.install-note {
+  margin-top: 10px;
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+
+.install-note code {
+  font-size: 13px;
+}
+
+/* The Gate stage is always Ink: the mark reads Bone + Signal on dark in both themes. */
+.gate-stage {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  aspect-ratio: 1 / 1;
+  justify-self: center;
+  overflow: hidden;
+  background: #0e0f0c;
+  border: 1px solid rgb(242 240 233 / 0.14);
+  border-radius: var(--radius);
+  touch-action: pan-y;
+}
+
+.gate-svg {
+  position: absolute;
+  left: 21%;
+  top: 21%;
+  width: 58%;
+  height: 58%;
+  overflow: visible;
+  transition: opacity 400ms ease;
+}
+
+.gate-token {
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+
+.gate-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+
+.gate-stage[data-mode="gpu"] .gate-canvas {
+  opacity: 1;
+}
+
+.gate-stage[data-mode="gpu"] .gate-svg {
+  opacity: 0;
+}
+
+.gate-readout {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid rgb(242 240 233 / 0.14);
+  background: #0e0f0c;
+  font-size: 12px;
+}
+
+.gate-prompt {
+  color: #a6a99e;
+  white-space: nowrap;
+}
+
+.gate-status {
+  color: #a6a99e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.gate-status[data-phase="denied"] {
+  color: #e5482d;
+  animation: deny-flash 420ms steps(2, jump-none) 2;
+}
+
+.gate-status[data-phase="grant"],
+.gate-status[data-phase="pass"] {
+  color: #c6f432;
+}
+
+@keyframes deny-flash {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.caret {
+  display: inline-block;
+  width: 0.6em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Terminal demo */
+.demo,
+.measured {
+  display: grid;
+  gap: 40px;
+  padding-top: 96px;
+}
+
+@media (min-width: 1024px) {
+  .demo,
+  .measured {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: 64px;
+  }
+}
+
+.demo-copy p:not(.label),
+.measured-copy p:not(.label) {
+  margin-top: 20px;
+  max-width: 52ch;
+  color: var(--fg-muted);
+}
+
+.terminal {
+  min-width: 0;
+  background: #1c1e19;
+  border: 1px solid rgb(242 240 233 / 0.14);
+  border-radius: var(--radius);
+  color: #f2f0e9;
+}
+
+.terminal-bar {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgb(242 240 233 / 0.14);
+  color: #a6a99e;
+}
+
+.terminal-body {
+  margin: 0;
+  padding: 16px 14px;
+  min-height: calc(10 * 1.7em + 32px);
+  overflow-x: auto;
+  font-size: 13.5px;
+  line-height: 1.7;
+  white-space: pre;
+}
+
+/* Narrow screens: wrap instead of hiding the denial message behind a horizontal scroll. */
+@media (max-width: 520px) {
+  .terminal-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 12.5px;
+    /* Reserve the wrapped height so typing never pushes the page down. */
+    min-height: calc(15 * 1.7em + 32px);
+  }
+}
+
+.terminal-prompt,
+.terminal-src {
+  color: #a6a99e;
+}
+
+.terminal-err {
+  color: #e5482d;
+}
+
+.terminal-ok {
+  color: #f2f0e9;
+}
+
+.terminal-ok .terminal-glyph {
+  color: #c6f432;
+}
+
+/* Principles */
+.principles {
+  padding-top: 120px;
+}
+
+.principles-list {
+  margin: 48px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.principle {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.28fr) minmax(0, 1fr);
+  gap: 16px 32px;
+  padding: 28px 0;
+  border-top: 1px solid var(--line);
+}
+
+.principle-number {
+  font-family: var(--font-code);
+  font-size: clamp(44px, 8vw, 104px);
+  font-weight: 300;
+  line-height: 0.9;
+  color: var(--fg-muted);
+}
+
+.principle h3 {
+  font-size: clamp(22px, 3vw, 32px);
+}
+
+.principle p {
+  margin-top: 10px;
+  max-width: 52ch;
+  color: var(--fg-muted);
+}
+
+/* Hidden only when the layout script set data-js (IntersectionObserver present, motion allowed). */
+[data-js] .reveal {
+  transition:
+    opacity 600ms ease,
+    transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+[data-js] .reveal:not(.is-revealed) {
+  opacity: 0;
+  transform: translateY(32px);
+}
+
+/* Features */
+.features {
+  padding-top: 120px;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  margin: 48px 0 0;
+  padding: 0;
+  list-style: none;
+  /* Cells draw their own right/bottom rules so an incomplete last row leaves no filled gap. */
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.features-grid li {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.feature-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  height: 100%;
+  padding: 24px;
+  text-decoration: none;
+  transition: background-color 160ms ease;
+}
+
+.feature-card:hover {
+  background: var(--bg-raised);
+}
+
+.feature-card h3 {
+  font-size: 20px;
+  font-stretch: 112%;
+}
+
+.feature-card p {
+  color: var(--fg-muted);
+  font-size: 15px;
+}
+
+/* Measured */
+.measured-figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.cores-canvas {
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  --viz-line: rgb(242 240 233 / 0.08);
+  --viz-cell: rgb(242 240 233 / 0.85);
+  --viz-idle: #1c1e19;
+  --viz-accent: #c6f432;
+}
+
+:root[data-theme="light"] .cores-canvas {
+  --viz-line: rgb(14 15 12 / 0.08);
+  --viz-cell: rgb(14 15 12 / 0.8);
+  --viz-idle: #e8e6de;
+  --viz-accent: #5e7a00;
+}
+
+.measured-figure figcaption {
+  margin-top: 12px;
+  color: var(--fg-muted);
+}
+
+/* Closing */
+.closing {
+  margin-top: 120px;
+  padding-top: 64px;
+  border-top: 1px solid var(--line);
+}
+
+.closing-title {
+  font-size: clamp(36px, 7vw, 88px);
+  line-height: 1;
+  max-width: 14ch;
+}

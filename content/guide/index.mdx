@@ -1,0 +1,115 @@
+---
+title: Getting Started
+description: Build Velyr from source, run your first script, and grant it your first permission.
+---
+
+Velyr is a security-first JavaScript and TypeScript runtime written in Rust. Scripts start with no access to files, network, environment or processes, and you grant what they need.
+
+<Callout type="warning" title="Alpha pre-release">
+Velyr is at version 0.1.0-alpha.1, a pre-release that is not for production. Node compatibility is partial and performance is not yet competitive with Node.js, Deno or Bun on HTTP throughput. You can download a prebuilt binary from GitHub Releases or build from source. There is no install script, npm package or Homebrew tap. The CLI has one command, `velyr run`. See [Roadmap and Status](/guide/roadmap) for what works today.
+</Callout>
+
+## Install a prebuilt binary
+
+Each [GitHub release](https://github.com/velyrlabs/velyr/releases) publishes `velyr-<target>.tar.gz` (`.zip` on Windows) archives and a `SHA256SUMS` file. Targets:
+
+- Linux: `x86_64` and `aarch64`, with `gnu` and `musl` variants.
+- macOS: `x86_64-apple-darwin` and `aarch64-apple-darwin`.
+- Windows: `x86_64-pc-windows-msvc`.
+
+Download the archive for your platform, verify it against `SHA256SUMS`, extract it and put `velyr` on your `PATH`.
+
+## Build from source
+
+You need `git` and [rustup](https://rustup.rs). The repository pins its Rust toolchain in `rust-toolchain.toml`, and rustup installs it on first build. The build downloads a prebuilt V8 and compiles a large dependency tree, so the first build takes a while.
+
+<Steps>
+
+1. Clone the repository.
+
+   ```bash
+   git clone https://github.com/velyrlabs/velyr.git
+   cd velyr
+   ```
+
+2. Build the CLI in release mode.
+
+   ```bash
+   cargo build --release -p velyr-cli
+   ```
+
+3. The binary is `target/release/velyr`. Check it.
+
+   ```bash
+   ./target/release/velyr --version
+   ```
+
+   It prints `velyr 0.1.0-alpha.1`.
+
+</Steps>
+
+Put `target/release` on your `PATH`, or copy the binary somewhere that is. The examples below assume `velyr` is on your `PATH`.
+
+## Run your first script
+
+Create `hello.js`:
+
+```js title="hello.js"
+const greeting = new TextEncoder().encode("hello from velyr");
+console.log(new TextDecoder().decode(greeting));
+
+await new Promise((resolve) => setTimeout(resolve, 100));
+console.log("done");
+```
+
+Run it:
+
+```bash
+velyr run hello.js
+```
+
+`.js` and `.mjs` files run as ES modules, so `import`, `export` and top-level `await` work. Nothing in this script needs a permission.
+
+## Grant a permission
+
+Try reading a file:
+
+```js title="read.js"
+try {
+  console.log(await Velyr.readTextFile("./notes.txt"));
+} catch (error) {
+  console.log(error.code);
+}
+```
+
+Without a grant, the read fails:
+
+```bash
+echo "remember this" > notes.txt
+velyr run read.js
+```
+
+```text
+VELYR_PERMISSION_DENIED
+```
+
+Grant read access to the current directory. Note the `=`: values are attached to the flag.
+
+```bash
+velyr run --allow-read=. read.js
+```
+
+```text
+remember this
+```
+
+Grants are scoped. `--allow-read=./data` allows only that directory and what is inside it, and `--deny-read=./data/secrets` carves out an exception that always wins. You can also put the same settings in a `velyr.json` file. The full rules are in [Permissions](/guide/permissions).
+
+## What next
+
+- [Why Velyr](/guide/why) explains the principles and the trade-offs.
+- [Features](/guide/features) lists what exists today and its status.
+- [Command Line Interface](/guide/cli) documents `velyr run`, its flags and exit codes.
+- [Permissions](/guide/permissions) covers every permission kind and how denials look.
+- [Modules](/guide/modules), [Web APIs](/guide/web-apis) and [Workers](/guide/workers) cover the runtime itself.
+- [Error Codes](/guide/errors) lists every `VELYR_*` code.

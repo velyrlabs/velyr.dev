@@ -1,0 +1,89 @@
+---
+title: Kitchen sink
+description: Fixture that exercises every component and code feature of the renderer.
+status: experimental
+---
+
+## Inline elements
+
+Plain paragraph with `inline code`, **strong**, _emphasis_, a [relative link](/guide/permissions), an [anchor link](#code-blocks) and an [external link](https://example.com). Inline status: <Status value="available" />, <Status value="experimental" />, <Status value="planned" />.
+
+## Callouts
+
+<Callout type="note">A note without a title.</Callout>
+
+<Callout type="tip" title="Grant the narrowest scope">
+  Prefer `--allow-read=./data` over a bare `--allow-read`.
+</Callout>
+
+<Callout type="warning">`--allow-all` grants every permission except native loading and the inspector.</Callout>
+
+<Callout type="danger" title="Never">Do not paste secrets into issue reports.</Callout>
+
+## Steps
+
+<Steps>
+
+1. Build the binary.
+
+   ```sh
+   cargo build --release -p velyr-cli
+   ```
+
+2. Write `main.js`.
+3. Run it with `velyr run main.js`.
+
+</Steps>
+
+## Code blocks
+
+```js title="main.js" {2,4-5}
+try {
+  const text = await Velyr.readTextFile("./data/hello.txt");
+  console.log(text);
+} catch (error) {
+  console.log(`${error.code}: ${error.message}`);
+}
+```
+
+```ts
+const id: string = crypto.randomUUID();
+```
+
+```text
+VELYR_PERMISSION_DENIED: fs-read access denied
+```
+
+### Code group
+
+<CodeGroup>
+
+```sh title="Deny (default)"
+velyr run main.js
+```
+
+```sh title="Grant read"
+velyr run --allow-read=./data main.js
+```
+
+```json title="velyr.json"
+{
+  "permissions": {
+    "allow-read": ["./data"]
+  }
+}
+```
+
+</CodeGroup>
+
+## Tables
+
+| Flag | Value | Effect |
+| --- | --- | --- |
+| `--allow-read` | `PATHS` | Read files under the listed paths |
+| `--deny-read` | `PATHS` | Wins over any allow |
+| `-A`, `--allow-all` | none | Everything except native loading and the inspector |
+
+### Nested heading with `code`
+
+Last paragraph.

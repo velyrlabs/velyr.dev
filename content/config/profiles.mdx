@@ -1,0 +1,54 @@
+---
+title: Profiles
+description: What the minimal, web, node and full build profiles are meant to be, and what the `velyr` binary actually does with them today.
+status: experimental
+---
+
+A profile is a named set of capabilities compiled into the `velyr` binary, so that a small Web or edge build does not carry Node compatibility code. Profiles are chosen when you build Velyr, not when you run it. There is no `velyr.json` key and no `velyr run` flag for selecting one.
+
+<Callout type="warning" title="All profiles are identical today">
+The four `profile-*` Cargo features exist and select cleanly, but they are empty. No code is conditionally compiled on them, and the global installer registers the same set of APIs regardless. A `profile-minimal` build currently behaves like a `profile-full` build. The table below describes the intended split, not the present difference.
+</Callout>
+
+## Intended profiles
+
+From the PRD:
+
+| Profile | Intended contents |
+| --- | --- |
+| `minimal` | Engine, core and ESM only. |
+| `web` | Minimal plus networking, fetch, request and response, streams, and selected HTTP and TLS features. |
+| `node` | Web plus Node compatibility, CommonJS and the npm resolver. |
+| `full` | All stable production capabilities, excluding experimental engine or JIT features unless enabled. |
+
+## What is installed today
+
+Every build installs the same globals on a fresh isolate: timers, `URL`, performance, events and abort, text encoding, streams, WebCrypto, the file APIs, net and TLS, `fetch`, structured clone (when the engine supports it) and the worker API. The source comments explain why `minimal` includes these anyway: timers, `URL` and events are needed by the kernel and pull in no network code, and the file and net APIs are default-deny, so their presence grants nothing. Profile-specific crates for web and node are meant to be added as they land.
+
+Import resolution also does not vary by profile. Bare specifiers resolve through `node_modules` and `package.json` in every build.
+
+## Selecting a profile
+
+Pass one feature at build time. The default is `profile-full`.
+
+<CodeGroup>
+```bash title="minimal"
+cargo build -p velyr-cli --no-default-features --features profile-minimal
+```
+
+```bash title="full (default)"
+cargo build -p velyr-cli --no-default-features --features profile-full
+```
+</CodeGroup>
+
+The same two commands run in CI, which verifies that both configurations compile. Features `profile-web` and `profile-node` are declared the same way.
+
+## Not implemented
+
+The PRD describes a `velyr build --profile=minimal|web|node|full` command. The CLI has no `build` command, so that invocation does not exist yet.
+
+Distinct from build profiles, the security notes mention that a deployment can disable native addon loading entirely. That refers to deployment policy, not to these Cargo features, and it is also not exposed through configuration today.
+
+## Choosing in practice
+
+Until the profiles diverge, there is no reason to prefer one over another beyond keeping your build scripts ready for when they do. If you need to restrict what a program can do now, use [permissions](/config/permissions), which are enforced at runtime regardless of profile.

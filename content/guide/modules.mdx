@@ -1,0 +1,99 @@
+---
+title: Modules
+description: How Velyr loads ES modules, how specifiers resolve, and what is not wired into the CLI yet.
+---
+
+Velyr is ESM-first (ADR-006): ES modules are the canonical format, and CommonJS is meant to live in an optional compatibility layer. This page separates what `velyr run` does today from what exists only as library code or is planned.
+
+## What `velyr run` does today
+
+`velyr run <file>` picks the loader from the file extension:
+
+| Extension | Behavior | Status |
+| --- | --- | --- |
+| `.js`, `.mjs` | Run as an ES module (`run_module_file`) | <Status value="available" /> |
+| anything else (`.cjs`, `.ts`, ...) | Run as a classic script (`run_file`), no module syntax, no transform | <Status value="available" /> |
+
+Module entries support static `import`, dynamic `import()`, top-level `await`, and import cycles following ESM semantics. These are covered by CLI tests in `crates/cli/tests/esm_m3.rs`.
+
+```js title="main.mjs"
+import { greet } from "./greet.mjs";
+
+const { default: config } = await import("./config.mjs");
+console.log(greet(config.name));
+```
+
+```bash
+velyr run main.mjs
+```
+
+<Callout type="note" title="Help text is behind the code">
+`velyr run --help` still describes the command as running a file "as a classic script". The implementation (`crates/cli/src/run.rs`) runs `.js` and `.mjs` files as modules.
+</Callout>
+
+## How specifiers resolve
+
+Resolution lives in `runtime-modules` (`FsResolver`, plus `StrategyResolver` for bare specifiers). Every module gets a canonical ID: the `file://` URL of its real path, so different spellings and symlinks of one file converge to a single module instance.
+
+| Specifier | Example | Result | Status |
+| --- | --- | --- | --- |
+| Relative | `./a.js`, `../lib/b.js` | Resolved against the importing module's directory | <Status value="available" /> |
+| Absolute path | `/srv/app/a.js` | Used as given, then canonicalized | <Status value="available" /> |
+| `file:` URL | `file:///srv/app/a.js` | Converted to a path | <Status value="available" /> |
+| Bare package | `lodash-es`, `@scope/pkg/sub` | `node_modules` walk with `package.json` `exports`, `main` or `index.js`, and self-reference | <Status value="available" /> |
+| Package `imports` | `#internal` | Resolved from the nearest `package.json` | <Status value="available" /> |
+| `node:` | `node:fs` | Error: Node compatibility is not linked | <Status value="planned" /> |
+| `http:` / `https:` | `https://example.com/m.js` | Error: not supported yet | <Status value="planned" /> |
+
+Bare specifiers go through `NpmResolver` from `compat-npm`. It matches the conditions `velyr`, `import` and `default`. The lookup is covered by `crates/cli/tests/npm_resolve.rs`.
+
+### Permissions and loading
+
+- The loader (`FsLoader`) opens only the canonical path of a resolved module and reads it as UTF-8 text.
+- By default `velyr run` grants import access to the project root: the directory of the nearest `velyr.json`, or the entry file's directory when there is none. An import outside that root fails with `VELYR_PERMISSION_DENIED` unless you pass a matching `--allow-read`. See [Permissions](/guide/permissions).
+- `VirtualLoader` serves modules from memory. It is for tests and embedders, not reachable from the CLI.
+
+### Known limits
+
+- The source cache never invalidates: a changed file is served stale until the module host is rebuilt.
+- Resolution checks that a target exists before consulting permissions, so the existence of files outside the grant can be observed through `NotFound` versus `PermissionDenied`.
+- A bare specifier that resolves to a CommonJS file (`.cjs`, or `.js` in a package without `"type": "module"`) is rejected with an error saying CommonJS needs Node compatibility.
+- The `imports` key of `velyr.json` is parsed and validated, and the resolver implements import maps (exact keys, then the longest key ending in `/`). The CLI does not pass the map to the module host yet, so entries have no effect today. See [Dependencies configuration](/config/dependencies).
+
+## TypeScript and JSX
+
+<Status value="experimental" />
+
+The `tooling-typescript` crate implements the design from ADR-012. It parses with [Oxc](https://oxc.rs), strips types, prints JavaScript with a source map, and caches results on disk. It does not type-check, and it assumes `isolatedModules` semantics. Syntax errors are reported as `file:line:column`.
+
+It plugs into the module host as a `SourceTransform` (`ModuleHost::with_transform`). The CLI does not register it, so:
+
+- `velyr run app.ts` is treated as a classic script and fails on the first type annotation.
+- Importing a `.ts` file from a `.js` module is not supported through the CLI.
+- `.tsx` is recognized by the transform's media type, but JSX configuration (`compilerOptions.jsx`, `jsxImportSource`) is parsed in `velyr.json` and not applied, and the planned `tooling-jsx` crate does not exist yet.
+
+Until the transform is wired in, run TypeScript through a separate build step.
+
+## CommonJS
+
+<Status value="experimental" />
+
+The `compat-commonjs` crate provides a `require` loader (JSON, `.js` and `.cjs`, cycles with partial exports, `import()` from CommonJS) and a transform that lets ESM `import` a CommonJS file, with default and statically detected named exports. It is covered by engine-level tests only; the CLI does not install it. `require()` of an ES module is not supported and throws `ERR_REQUIRE_ESM`.
+
+## npm packages
+
+<Status value="experimental" />
+
+Importing an already-installed, ESM-only package from `node_modules` works through `velyr run`, as described above. Installing packages does not: there is no `velyr install` command. The `compat-npm` crate contains the building blocks (registry client with integrity checks, semver, dependency resolution, content-addressed cache, lockfile model) but they are not exposed by the CLI. See [Node and npm compatibility](/guide/node-compat).
+
+## Summary
+
+| Capability | Status | Where |
+| --- | --- | --- |
+| ESM entry, static and dynamic `import`, top-level `await` | <Status value="available" /> | `crates/cli/src/run.rs`, `crates/runtime-core/src/esm.rs` |
+| Relative, absolute and `file:` specifiers | <Status value="available" /> | `crates/runtime-modules/src/resolve.rs` |
+| Bare specifiers from `node_modules` (ESM packages) | <Status value="available" /> | `crates/compat-npm/src/resolve/mod.rs` |
+| `velyr.json` import map | <Status value="experimental" /> | resolver implements it; CLI does not pass it |
+| TypeScript stripping | <Status value="experimental" /> | `crates/tooling-typescript` |
+| CommonJS `require` and ESM interop | <Status value="experimental" /> | `crates/compat-commonjs` |
+| `node:` modules, remote (`https:`) imports | <Status value="planned" /> | `docs/compatibility/node-npm.md` |

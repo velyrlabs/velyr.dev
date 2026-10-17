@@ -1,0 +1,74 @@
+---
+title: Roadmap and Status
+description: The planned phases of Velyr and what is actually implemented in each, judged from the source and its tests.
+---
+
+Velyr is early. The roadmap defines eleven phases (numbered 0 to 10) on three tracks: the runtime kernel, compatibility and tooling, and a native ECMAScript engine written in Rust. The status below comes from reading the crates and the CLI tests, not from the plans. The CLI version is 0.1.0-alpha.1 and the release criteria call the current stage a preview: architecture may change and there are no compatibility guarantees.
+
+## Status by phase
+
+| Phase | Goal | Status |
+| --- | --- | --- |
+| 0. Foundation | Workspace, CI, lint policy, dependency audit, benchmark harness, fuzz workspace | <Status value="available" /> |
+| 1. Engine bridge | Run JavaScript through an engine adapter, with host calls | <Status value="available" /> |
+| 2. Async kernel | Promises, timers, event loop on Tokio | <Status value="available" /> |
+| 3. Security and modules | Capabilities, quotas, ES modules | <Status value="available" /> |
+| 4. Web runtime | Web APIs, fetch, streams, TCP, HTTP, TLS | <Status value="experimental" /> |
+| 5. Multicore | Workers, messaging, permission intersection, serving across cores | <Status value="experimental" /> |
+| 6. npm | Resolution, installer, lockfile | <Status value="experimental" /> |
+| 7. Node compatibility | CommonJS, `node:` modules, `Buffer` | <Status value="experimental" /> |
+| 8. Frontend | TypeScript, JSX, Vite, React, Vue | <Status value="experimental" /> |
+| 9. Node-API | Native addons behind explicit permission | <Status value="planned" /> |
+| 10. Native engine | A Rust ECMAScript engine, driven by Test262 | <Status value="experimental" /> |
+
+Here "available" means the phase's main deliverables work from `velyr run`. "Experimental" means part of the phase works, or the code exists but the CLI does not expose it.
+
+## What exists in each phase
+
+### Phase 0, Foundation
+
+A Cargo workspace of 28 crates, CI workflows for build, release and security, `cargo-deny` policy, a fuzz workspace, a benchmark harness (`velyr-bench`) with a startup suite, stable error codes and a tracing convention. The toolchain is pinned in `rust-toolchain.toml`.
+
+### Phase 1, Engine bridge
+
+V8 (through the `v8` crate) is the production engine, behind an `engine-api` interface with a shared conformance suite. Host functions, values, exceptions with stacks and `console` work. See [Why Velyr](/guide/why) for why V8 was chosen first.
+
+### Phase 2, Async kernel
+
+A completion queue delivers results from Tokio back to the owning isolate, with timers, cancellation and microtask integration. Tests cover timers and top-level `await`.
+
+### Phase 3, Security and modules
+
+The capability model, permission flags and `velyr.json` permissions, a per-isolate resource table with generation-checked ids, quotas, leak diagnostics, and an ES module loader with canonical module ids. Known limits: the module source cache never invalidates within a process, and remote (`https:`) imports are not supported. See [Permissions](/guide/permissions).
+
+### Phase 4, Web runtime
+
+Working from `velyr run`: `URL`, encoding, events, abort, Web Streams, `crypto`, `fetch` with `Headers`, `Request` and `Response`, TCP, and TLS (via rustls). An HTTP/1 and HTTP/2 server exists as a crate but has no JavaScript API. Missing: `WebSocket`, `Blob`, `File`, `FormData`, `URLPattern`, and a Web Platform Tests runner. No comparative benchmark against other runtimes has been published.
+
+### Phase 5, Multicore
+
+Module workers with their own isolate and thread, structured clone, `MessageChannel`, `BroadcastChannel`, permission intersection and a worker quota all work. Missing: the server supervisor, connection distribution across workers, `--workers=auto` and the scaling benchmark.
+
+### Phase 6, npm
+
+Bare specifiers resolve through `node_modules`, honoring `exports` and `imports`. A registry client, content-addressed cache, lockfile and semver exist as library code and are not wired to any command. `velyr add`, `install` and `remove` are not implemented.
+
+### Phase 7, Node compatibility
+
+A CommonJS loader exists as a crate and is not linked into the binary; `require(esm)` is not supported in it. There are no `node:` modules, no `Buffer` and no `process`.
+
+### Phase 8, Frontend
+
+A TypeScript transform built on Oxc (type stripping with source maps and a disk cache) exists as a crate and is not linked into the binary. There is no JSX transform, no Vite integration and no React or Vue acceptance project.
+
+### Phase 9, Node-API
+
+Not started. The `--allow-native` permission is reserved for it.
+
+### Phase 10, Native engine
+
+Parser front-end (Oxc), register bytecode compiler, interpreter and a mark-sweep garbage collector exist, and a Test262 runner compares results to a committed expectation manifest for both V8 and the native engine. The engine's own source says modules and promises are not implemented yet. It can be selected with `--engine native`, which is experimental and feature-gated.
+
+## Before 1.0
+
+The release criteria require, among other things: a stable permission model, a published compatibility dashboard, conformance results, benchmark regression checks in CI, a coordinated disclosure process, and a documented native-engine status. Preview, beta and 1.0 are defined in `docs/RELEASE-CRITERIA.md` in the source repository. None of those gates has been declared passed.

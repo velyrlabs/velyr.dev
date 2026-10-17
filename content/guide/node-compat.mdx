@@ -1,0 +1,69 @@
+---
+title: Node and npm Compatibility
+description: Why Node compatibility is optional in Velyr, what the npm and CommonJS crates do today, and what does not work yet.
+---
+
+Velyr is not a drop-in replacement for Node.js today, and its design does not make it one by default. ADR-007 states the rule: Node core APIs, CommonJS, npm-specific behavior and Node-API do not become kernel requirements. Compatibility is an adoption layer built on top of the Web-standards kernel, so a small web-only distribution and a larger compatibility distribution can come from one architecture.
+
+<Callout type="warning" title="Do not expect Node programs to run">
+There is no `node:` module support, no `Buffer`, no `process`, no `require` in `velyr run`, and no `velyr install`. Importing `node:fs` fails with an "unsupported" error. This page lists what exists so you can judge for yourself.
+</Callout>
+
+## Status at a glance
+
+| Layer | What it is | Status | Evidence |
+| --- | --- | --- | --- |
+| Bare-specifier resolution for ESM packages | `node_modules` walk, `exports`, `imports`, conditions, self-reference | <Status value="available" /> | `crates/compat-npm/src/resolve/`, `crates/cli/tests/npm_resolve.rs` |
+| npm registry client, semver, dependency resolver, content-addressed cache, lockfile model | Library building blocks | <Status value="experimental" /> | `crates/compat-npm/` (no CLI command uses them) |
+| `velyr install` | Install packages from a registry | <Status value="planned" /> | `docs/plans/phase-06-npm.md` |
+| CommonJS `require` and ESM interop | Loader and transform | <Status value="experimental" /> | `crates/compat-commonjs/` (not installed by the CLI) |
+| Node core modules (`node:path`, `node:fs`, ...), `Buffer`, `process` | `compat-node` layer | <Status value="planned" /> | `docs/compatibility/node-npm.md`; crate does not exist |
+| Node-API (native addons) | `compat-napi` | <Status value="planned" /> | `docs/research/napi-scope.md`; crate does not exist |
+| React, Vue, Vite | Acceptance targets | <Status value="planned" /> | `docs/compatibility/frontend.md`; no acceptance app exists |
+
+## What compat-npm does today
+
+The `compat-npm` crate follows Node's package semantics without reimplementing the npm CLI.
+
+- **Resolution (reachable from `velyr run`)**: bare imports such as `import x from "pkg/sub"` walk `node_modules` and honor `package.json` `exports` (conditional exports, subpath patterns), `imports` (`#internal`), self-reference, and the `main` and `index.js` fallback. ESM resolution matches the `velyr`, `import` and `default` conditions.
+- **ESM only**: if the target is a CommonJS file (`.cjs`, or `.js` without `"type": "module"` in its package), resolution fails with an error that CommonJS needs Node compatibility. A large share of the npm ecosystem is still CommonJS, so many popular packages cannot be imported yet.
+- **Library only**: an abbreviated-packument registry client with `.npmrc` auth and SRI integrity verification, npm-style semver, a pure dependency resolver that produces a hoisted install plan (dependencies, dev, peer and optional), an atomic content-addressed cache, and a lockfile model. No CLI subcommand drives them, so you install packages with another tool and Velyr only reads the resulting `node_modules`.
+
+## Lifecycle scripts
+
+The supply-chain design denies `preinstall`, `install`, `postinstall` and `prepare` by default, with a package-scoped opt-in (`velyr install --allow-scripts=esbuild,sharp`). That command does not exist yet. The planner already flags packages that declare install scripts.
+
+## CommonJS
+
+<Status value="experimental" />
+
+`compat-commonjs` targets Node 24 semantics: `require` and `require.resolve`, JSON, `.js` and `.cjs`, cycles with partial exports, `import()` from CommonJS, and an ESM facade so `import` can read a CommonJS file (`default` is `module.exports`, plus statically detected named exports). It has engine-level tests and is not part of the CLI. Known limits stated in the crate: `require(esm)` throws `ERR_REQUIRE_ESM`, TypeScript sources are not handled, and bare-specifier support depends on the npm resolver being allowed to return CommonJS targets.
+
+## Planned Node layers
+
+The priorities in `docs/compatibility/node-npm.md`, none of which is implemented:
+
+| Tier | Modules |
+| --- | --- |
+| 1 | `node:path`, `node:url`, `node:events`, `node:assert`, `node:util`, `Buffer` |
+| 2 | `node:fs`, `node:stream`, `node:crypto`, `node:os` |
+| 3 | `node:http`, `node:https`, `node:net`, `node:tls`, `node:dns` |
+| 4 | `node:child_process`, `node:worker_threads`, advanced diagnostics |
+
+Each module will be reported as `unsupported`, `experimental`, `partial` or `supported`, with every status linked to executable evidence. The phase plans are `docs/plans/phase-06-npm.md` (npm), `phase-07-node-compat.md` (Node core), `phase-08-frontend.md` and `phase-09-napi.md`.
+
+## Native addons (Node-API)
+
+Node-API is the planned route for native packages, because it is designed to be engine-independent and ABI-stable. Direct V8 C++ addons are not a target. A research note (`docs/research/napi-scope.md`) surveyed nine prebuilt addons on one platform (darwin-arm64) and concluded the layer must export Node-API symbols up to version 8 and accept declared versions up to 10. Treat that as research, not a commitment.
+
+Native code is not sandboxed by Velyr's permissions. Loading is planned to be off by default and require an explicit `--allow-native` grant. See [Security](/guide/security).
+
+## Frontend tooling
+
+Velyr does not plan framework-specific shims. React, Vue and Vite compatibility is meant to fall out of ECMAScript, ESM, package resolution, Web APIs and, where tooling needs them, Node modules. The acceptance scenarios in `docs/compatibility/frontend.md` include importing the packages, JSX and SFC compilation, server rendering over Web Streams, and Vite development and build flows. Vite is treated as a stress test because it needs filesystem, path, watchers, child processes and WebSockets. None of these scenarios has been run yet, and several prerequisites (TypeScript and JSX in the CLI, `node:` modules, `WebSocket`) are missing. TypeScript handling is described on [Modules](/guide/modules).
+
+## What to use instead today
+
+- Write ESM and Web-standard code (`fetch`, Web Streams, Web Crypto, `URL`).
+- Bundle or pre-compile TypeScript, JSX and CommonJS dependencies to ESM before running them with `velyr run`.
+- Keep dependencies in an existing `node_modules` that is ESM-only.

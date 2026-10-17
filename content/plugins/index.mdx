@@ -1,0 +1,64 @@
+---
+title: Plugins
+description: The accepted design for Velyr plugins as WebAssembly components with explicit, injected capabilities, and how they differ from native addons.
+status: planned
+---
+
+<Callout type="warning" title="Design only">
+This page documents an accepted design, not a shipped feature. There is no plugins crate in the workspace today, no plugin loader, no plugin command and no `velyr.json` key for plugins. The source is ADR-008, the Plugin API spec and the native extensions security notes. Details may change before an implementation lands.
+</Callout>
+
+## The model
+
+New Velyr plugin interfaces should be WebAssembly components described with WIT, the interface definition language of the WebAssembly Component Model. ADR-008 records this as the preferred extension direction, ahead of native dynamic libraries. A plugin is a `.wasm` component that exports the functions its interface declares and can call only the host interfaces it has been given.
+
+ADR-009 names Wasmtime as the Wasm runtime for plugins. It also keeps that role separate from the JavaScript `WebAssembly` API provided by the engine: plugin authority never flows through the JavaScript API.
+
+## Why WebAssembly
+
+- **No ambient authority.** A component starts with no filesystem, network or environment access. It can only call interfaces that the host explicitly imports into it.
+- **Explicit budgets.** Memory limits and execution limits (fuel or epoch based, where the runtime supports them) can be set per plugin.
+- **Fault containment.** A trap in a component does not take down the process the way a crash in native code can.
+- **Typed, versioned contracts.** WIT worlds are versioned, and serialization contracts are meant to be deterministic.
+
+The trade-off is cost and reach. Calls cross a boundary with serialization, and a plugin cannot do anything the host has not exposed. For a build step or a transformer, that is usually fine. For wrapping an existing native library, it is not.
+
+## Sandboxing and capabilities
+
+Capabilities are injected, not ambient. The spec sorts plugins into three classes:
+
+| Class | Authority |
+| --- | --- |
+| Pure | No host capabilities. Parsing, transformation and computation only. |
+| Capability plugin | Receives explicit, narrow services, for example read access to one virtual store. |
+| Privileged | Requires an explicit deployment opt-in. |
+
+This follows the same rule as the rest of Velyr: nothing is granted by default, and the project decides what a plugin may touch. See [permissions](/config/permissions) for the runtime model that plugins are designed to mirror. How a plugin's requested capabilities would be written in `velyr.json` is not specified yet.
+
+## Lifecycle
+
+The documents do not define a lifecycle. What is stated is a set of requirements: interfaces are imported explicitly, limits are configurable, and worlds are versioned. Stages such as discovery, loading, instantiation and teardown are not specified, and neither is the order in which hooks run. See [Plugin API](/plugins/api) for the gaps.
+
+## Distribution
+
+Not specified. The repository reserves a `plugins-wasm` crate name in its layout, and nothing more is decided about packaging, registries or signing. The supply-chain notes cover npm packages and release artifacts, not plugins.
+
+## Plugins vs native addons (N-API)
+
+| | Wasm plugins | Native addons (N-API) |
+| --- | --- | --- |
+| Purpose | Velyr-native extension point | Compatibility with existing Node packages |
+| Isolation | Sandboxed by construction | None: runs in-process |
+| Authority | Only injected interfaces | Can read process memory, call OS APIs, bypass runtime permissions, crash the process |
+| Permission | Per-plugin capabilities | Elevated `--allow-native` grant |
+| Status | Planned | Not implemented; research on the required N-API surface exists |
+
+Native addon support is a compatibility exception, not the recommended way to extend Velyr. N-API compatibility does not imply sandbox safety. Policy for native loading is: off by default, requires an explicit permission, audited in telemetry, and possibly disabled entirely by a deployment. The `allow-native` flag is parsed today, but no loader consumes it yet. See [Permission Options](/config/permissions).
+
+The security notes also list a possible future containment step: running addons in a separate host process over IPC. The benefits would be crash isolation and an OS-level sandbox, at the cost of serialization, latency, and incompatibility with addons that expect in-process engine pointers. This is an investigation item, not a decision.
+
+## Related
+
+- [Plugin API](/plugins/api)
+- [Security](/guide/security)
+- [Node compatibility](/guide/node-compat)

@@ -1,0 +1,119 @@
+---
+title: Performance and Benchmarks
+description: How Velyr plans to measure performance, the regression budgets it proposes, and how to run the benchmark harness yourself.
+---
+
+Velyr's principle is "everything measurable": a performance claim needs a method, a machine, a commit and raw data. This page describes the method and the tooling. It contains no measured results, because none have been published yet.
+
+<Callout type="note" title="No published numbers">
+No benchmark results or baselines are committed to the repository (`benches/baselines/` is empty), and no comparison with Node.js, Deno or Bun has been run. When results are published they will come with the machine, the commit and the raw result files.
+</Callout>
+
+## What is being optimized
+
+The primary target is useful work per core and per gigabyte, written in `docs/performance/performance.md` as:
+
+```text
+useful_throughput / (cpu_time x rss)
+```
+
+This is chosen so that raw throughput is not improved at the cost of memory. Engine microbenchmarks (property access, closures, JSON, regexp) are explicitly diagnostic, not the product score.
+
+## Planned suites
+
+From `docs/performance/benchmark-plan.md`. Only the first one has a runnable definition today.
+
+| Area | Planned cases | Status |
+| --- | --- | --- |
+| Startup | Process start (`velyr --version`) | <Status value="available" /> |
+| Startup | Hello world; ESM graphs of 10, 100 and 1000 modules | <Status value="planned" /> |
+| Memory | Idle, simple HTTP, N workers, large module graph, WebSocket connections | <Status value="planned" /> |
+| HTTP | Plaintext, JSON, small body, large streaming body, TLS, HTTP/1, HTTP/2 | <Status value="planned" /> |
+| Async | Timers, promise chains, file read concurrency, TCP echo, fetch fan-out | <Status value="planned" /> |
+| Engine | Language microbenchmarks | <Status value="planned" /> |
+| Multicore | 1, 2, 4, 8, 16 and 32 workers where hardware permits | <Status value="planned" /> |
+
+Planned metrics are requests per second, operations per second, CPU seconds, RSS and peak RSS, heap, P50/P95/P99 latency, context switches, GC pauses and startup wall time. Any comparison with other runtimes must disclose versions and configuration.
+
+## Budgets are targets, not results
+
+`docs/PERFORMANCE-BUDGETS.md` proposes merge gates. They describe how much slower a change may make a metric before it needs a rerun, noise analysis and explicit approval. They say nothing about how fast Velyr is.
+
+| Metric | Proposed regression threshold |
+| --- | --- |
+| HTTP throughput | more than 3% slower |
+| P99 HTTP latency | more than 5% worse |
+| Idle RSS | more than 3% worse |
+| Loaded RSS | more than 3% worse |
+| Cold startup | more than 5% worse |
+| Worker startup | more than 5% worse |
+| Module graph load | more than 5% worse |
+
+The document itself marks these as provisional until calibrated on dedicated runners, and says not to freeze marketing targets before baseline data exists. The harness currently enforces four of them: throughput, P99, RSS and wall time.
+
+## Running the benchmarks locally
+
+The harness is the `velyr-bench` binary from the `velyr-bench-harness` crate. It runs a command several times and records wall time, CPU time and RSS in a JSON file validated by `benches/schema/result.schema.json`.
+
+<Steps>
+
+1. Build the runtime in release mode.
+
+   ```bash
+   cargo build --release -p velyr-cli
+   ```
+
+2. Run the startup suite. The harness replaces a leading `velyr` in the suite command with `--bin` (or `VELYR_BIN`, default `target/release/velyr`).
+
+   ```bash
+   cargo run --release -p velyr-bench-harness -- run benches/suites/startup.toml
+   ```
+
+3. Read the result file the command prints, written to `benches/results/startup-<unix-timestamp>.json`.
+
+4. Compare a later result against an earlier one. The command exits with status 1 when a budget is exceeded.
+
+   ```bash
+   cargo run --release -p velyr-bench-harness -- compare <baseline.json> <result.json>
+   ```
+
+</Steps>
+
+A suite is a small TOML file:
+
+```toml title="benches/suites/startup.toml"
+name = "startup"
+command = ["velyr", "--version"]
+iterations = 30
+warmup = 5
+metrics = ["wall_ms", "rss_mb", "cpu_seconds"]
+```
+
+Each result records the commit, build profile, platform, CPU, memory, `rustc` version, OS and timestamp, so numbers can be traced to a machine.
+
+### Reading the metrics honestly
+
+- `wall_ms` is the median wall time over the iterations, after the warmup runs.
+- `cpu_seconds` is the average user plus system CPU time per iteration.
+- `rss_mb` is the high-water mark across all child processes of the run, not a per-iteration figure.
+- The shipped suite times `velyr --version`, which measures process start, not JavaScript execution. It is a harness smoke test, not a runtime benchmark.
+- Run on a quiet machine, in release mode, and repeat. Budgets need per-runner noise calibration before they can gate anything.
+
+## Engines
+
+Velyr hides its JavaScript engine behind `engine-api` (ADR-004), so it can be benchmarked and tested per engine.
+
+| Engine | Role | Status |
+| --- | --- | --- |
+| `engine-v8` | Reference and production engine, via the Rust `v8` crate from the Deno project. Default engine for `velyr run` | <Status value="available" /> |
+| `engine-native` | In-progress Velyr engine (Oxc front end, own bytecode, VM and GC). Selectable with `--engine native` (experimental, feature-gated); also run through the test262 runner | <Status value="experimental" /> |
+
+ADR-009 picks V8 as the initial engine because the target workloads (Vite, React server rendering, Vue compilation) need a JIT, and a native engine is a multi-year effort that must not block the rest of the roadmap. The native engine has to pass a shared `engine-api` conformance suite alongside V8. Engine performance is a Track C concern and is not claimed anywhere on this site. V8 and test262 are upstream projects; credit for their work belongs to their maintainers.
+
+## Conformance runs
+
+Conformance is measured separately from speed. The `velyr-test262` runner executes [test262](https://github.com/tc39/test262) against either engine and diffs the outcome with committed expected-failure manifests. Raw results are written to `compat/results/` and are not committed or published yet. See [Web APIs](/guide/web-apis#conformance).
+
+## Performance is gated
+
+From `docs/performance/performance.md`: an optimization that weakens permissions, changes semantics, creates unbounded memory, or increases the unsafe surface without justification is rejected. Fast paths need a correct slow path and differential tests.

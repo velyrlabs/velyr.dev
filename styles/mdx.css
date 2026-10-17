@@ -1,0 +1,347 @@
+.prose {
+  max-width: 72ch;
+}
+
+.prose > * + * {
+  margin-top: 1.1em;
+}
+
+.prose h2 {
+  margin-top: 2.4em;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  font-size: 28px;
+}
+
+.prose h3 {
+  margin-top: 2em;
+  font-size: 21px;
+  font-stretch: 112%;
+}
+
+.heading-anchor {
+  margin-left: 10px;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-weight: 400;
+  font-size: 0.7em;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+h2:hover .heading-anchor,
+h3:hover .heading-anchor,
+.heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.prose a {
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.prose a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.4em;
+}
+
+.prose li + li {
+  margin-top: 0.35em;
+}
+
+.prose :not(pre) > code {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.prose blockquote {
+  margin-left: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--fg-muted);
+}
+
+/* Code blocks: Shiki emits both themes as CSS variables (defaultColor: false). */
+.code-block {
+  position: relative;
+  margin: 1.4em 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-code);
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.code-bar-floating {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 0;
+  border: 0;
+  min-height: 0;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/* Untitled blocks: copy appears on hover or keyboard focus, and always on touch screens. */
+.code-block:hover .code-bar-floating,
+.code-block:focus-within .code-bar-floating {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .code-bar-floating {
+    opacity: 1;
+  }
+}
+
+.copy-button {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  font: 500 12px/1 var(--font-code);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.copy-button:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 14px 0;
+  overflow-x: auto;
+  font-size: 14px;
+  line-height: 1.65;
+  background: transparent !important;
+}
+
+.code-block pre code {
+  display: block;
+  min-width: max-content;
+}
+
+.code-block .line {
+  display: inline-block;
+  width: 100%;
+  padding: 0 16px;
+}
+
+.code-block .line.highlighted {
+  background: rgb(198 244 50 / 0.08);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+:root[data-theme="light"] .code-block .line.highlighted {
+  background: rgb(94 122 0 / 0.1);
+}
+
+.shiki,
+.shiki span {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+}
+
+:root[data-theme="light"] .shiki,
+:root[data-theme="light"] .shiki span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+}
+
+.code-group {
+  margin-top: 1.4em;
+}
+
+.code-group-tabs {
+  display: flex;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  background: var(--bg-raised);
+}
+
+.code-group-tabs button {
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: 400 13px/1 var(--font-code);
+  cursor: pointer;
+}
+
+.code-group-tabs button[aria-selected="true"] {
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.code-group .code-block {
+  margin-top: 0;
+}
+
+.code-group .code-block pre {
+  padding-right: 80px;
+}
+
+/* Callout: a top hairline and a mono label, never a left border. */
+.callout {
+  margin-top: 1.4em;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.callout-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.callout[data-type="note"] .label {
+  color: var(--fg-muted);
+}
+
+.callout[data-type="tip"] {
+  border-top-color: var(--accent);
+}
+
+.callout[data-type="tip"] .label {
+  color: var(--accent-text);
+}
+
+.callout[data-type="warning"] {
+  border-top-color: var(--warn);
+}
+
+.callout[data-type="warning"] .label {
+  color: var(--warn);
+}
+
+.callout[data-type="danger"] {
+  border-top-color: var(--error);
+}
+
+.callout[data-type="danger"] .label {
+  color: var(--error);
+}
+
+.callout-title {
+  font-weight: 700;
+}
+
+.callout-body > * + * {
+  margin-top: 0.8em;
+}
+
+.steps ol {
+  counter-reset: step;
+  list-style: none;
+  padding-left: 0;
+}
+
+.steps ol > li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 52px;
+  padding-bottom: 12px;
+}
+
+.steps ol > li + li {
+  margin-top: 12px;
+}
+
+.steps ol > li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 2px;
+  font-family: var(--font-code);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  border-top: 1px solid var(--line-strong);
+  padding-top: 2px;
+  width: 32px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 1.4em;
+  border: 1px solid var(--line);
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table-wrap th {
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Flags and keys must not break mid-token; the table scrolls in its box instead. */
+.prose .table-wrap :not(pre) > code {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+@media (max-width: 640px) {
+  .table-wrap table {
+    min-width: 560px;
+  }
+}

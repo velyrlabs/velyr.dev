@@ -1,0 +1,145 @@
+---
+title: Configuring Velyr
+description: How `velyr run` finds, parses and applies `velyr.json`, how it combines with CLI flags, and what the `velyr.lock` lockfile is today.
+status: available
+---
+
+Velyr reads its project configuration from a single file named `velyr.json`. Today the file is consumed by `velyr run`, and only part of it has an effect. This page describes the file as a whole; each option has its own status badge so you can tell what is applied, what is only parsed, and what is only designed.
+
+<Callout type="note" title="Status legend">
+`available` means the option is parsed and applied by `velyr run` today. `experimental` means it is accepted and validated, but nothing reads it yet or only part of it is honored. `planned` means it exists only in design documents.
+</Callout>
+
+## Discovery
+
+`velyr run` looks for `velyr.json` starting at the current working directory and walks up through each parent directory. The first file found wins; there is no merging of several files. If none is found, Velyr runs with defaults.
+
+Two details are easy to miss:
+
+- The search starts at the working directory, not at the directory of the entry file. `velyr run src/main.js` launched from a sibling project will not find `src/velyr.json` unless you `cd` first.
+- The directory that holds `velyr.json` becomes the project root. Relative paths inside the file are not resolved against it; permission paths resolve against the working directory (see [Permission Options](/config/permissions)).
+
+Only the root project's `velyr.json` can grant authority. A dependency's `velyr.json` is ignored.
+
+## File format
+
+`velyr.json` is JSON with comments (JSONC). Line comments, block comments and trailing commas are accepted. An empty file, or a file containing only comments, is an empty configuration.
+
+Every object in the file rejects unknown keys. A typo in any key is an error rather than being silently ignored, and the error names the offending key. For this reason a `$schema` property is not accepted, and no JSON Schema file is published for `velyr.json` yet.
+
+## Top-level keys
+
+| Key | Type | Status | Page |
+| --- | --- | --- | --- |
+| `permissions` | object | <Status value="available" /> | [Permission Options](/config/permissions) |
+| `quotas` | object | <Status value="available" /> (4 of 6 classes) | [Server & Worker Options](/config/server) |
+| `workers` | number or `"auto"` | <Status value="experimental" /> | [Server & Worker Options](/config/server) |
+| `imports` | object of string to string | <Status value="experimental" /> | [imports](#imports) |
+| `compilerOptions` | object | <Status value="experimental" /> | [compilerOptions](#compileroptions) |
+
+### imports <Status value="experimental" />
+
+- **Type:** `Record<string, string>` (specifier to target)
+- **Default:** none
+- **CLI:** none
+
+An import map. The file format accepts it and checks that every value is a string, but the module resolver does not read it yet, so entries have no effect on how imports resolve. Bare specifiers are resolved today through `node_modules` and the `exports` and `imports` fields of `package.json`, which is unrelated to this key.
+
+### compilerOptions <Status value="experimental" />
+
+- **Type:** an object with optional string fields `jsx` and `jsxImportSource`
+- **Default:** none
+- **CLI:** none
+
+Accepted keys are exactly `jsx` and `jsxImportSource`, both optional strings. Values are not validated against a list of allowed modes, and no transform reads them yet. Any other key under `compilerOptions` is rejected.
+
+## Precedence with CLI flags
+
+The two sources combine differently depending on the key:
+
+| Setting | Source of truth |
+| --- | --- |
+| `permissions` | CLI flags **replace** the block. Nothing is merged. |
+| `quotas` | `velyr.json` only. There are no quota flags. |
+| `workers`, `imports`, `compilerOptions` | `velyr.json` only, and not applied yet. |
+
+The replacement rule is stricter than it sounds. If you pass any permission flag at all, including a single `--deny-net=example.com` or `-A`, the entire `permissions` block in `velyr.json` is ignored for that run. A deny flag does not narrow a config that allows things; it discards the config's allows. If you want a mix, put everything on the command line or everything in the file.
+
+Permission flags take their value with an equals sign: `--allow-read=./data`, not `--allow-read ./data`.
+
+## Annotated example
+
+This example uses only keys that exist. Keys marked in comments as not yet applied are parsed and validated, so they are safe to commit, but they do not change behavior today.
+
+```json title="velyr.json"
+{
+  // Applied today. Same grammar as the CLI flags, in kebab-case.
+  "permissions": {
+    "allow-read": ["./data", "./public"],
+    "allow-net": ["api.example.com:443", "*.cdn.example.com"],
+    "allow-env": ["DATABASE_URL", "AWS_*"],
+    "deny-net": ["169.254.169.254"]
+  },
+
+  // Applied today for sockets, listeners, workers and body_bytes.
+  // Unset classes keep their defaults.
+  "quotas": {
+    "workers": 8,
+    "body_bytes": 67108864
+  },
+
+  // Parsed and validated, not applied yet.
+  "workers": "auto",
+  "imports": { "app/": "./src/" },
+  "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" }
+}
+```
+
+## Errors on bad configuration
+
+Configuration errors are printed to stderr and the process exits with a failure status before any user code runs. These are the messages, with the path of the file that was found:
+
+| Situation | Message |
+| --- | --- |
+| File cannot be read | `error: cannot read <path>: <io error>` |
+| Invalid JSONC, wrong type, or unknown key | `error: invalid <path>: <message>` |
+| Bad value in a permission list or flag | `error: invalid value "<value>" for --<flag>: <reason>` |
+| Working directory unavailable | `error: cannot determine the working directory: <io error>` |
+
+In the second row the message comes from the parser and always contains the name of an unknown key. For example, a stray `"bogusKey"` produces an error that mentions `bogusKey`. The exact wording of type errors, such as `"workers": "many"`, is produced by the deserializer and may change between releases; only the fact that it fails is stable.
+
+The reasons reported for permission values are:
+
+| Reason | Cause |
+| --- | --- |
+| `empty value` | An empty string in a list, for example `"allow-read": [""]`. |
+| `empty host` | A host or address part is missing, for example `:8080`. |
+| `unclosed '['` | An IPv6 literal without the closing bracket. |
+| `expected ':port' after the host` | Text follows a bracketed IPv6 literal that is not a port. |
+| `invalid port` | The port is not an integer from 0 to 65535, or the value has extra colons such as `a:b:c`. |
+
+Using the flag name in the message (`--allow-net`, `--deny-listen`) works for both CLI flags and config entries, since they share one grammar.
+
+## The lockfile: velyr.lock
+
+<Callout type="warning" title="Library only; no command writes it yet">
+ADR-013 defines `velyr.lock`, and a reader and writer exist in the `compat-npm` crate. The CLI exposes only `velyr run` today. There is no `velyr add`, `velyr install` or `velyr remove`, so nothing creates or updates the file, and `velyr run` does not read it.
+</Callout>
+
+What exists in code:
+
+- A JSON document with a required `lockfileVersion` field (currently `1`), an `importers` map for the direct dependencies of the root project, and a `packages` map keyed by `name@version`.
+- Every package entry carries `resolved`, an SRI `sha512` `integrity`, and optionally `dependencies`, `optionalDependencies`, `os`, `cpu` and `hasInstallScript`.
+- Output is deterministic: two-space indentation, keys sorted at every level, trailing newline.
+- Parsing a file with a missing or different `lockfileVersion` fails with `unsupported lockfileVersion <n>, expected 1`.
+- A drift check compares the lockfile with `package.json` and, in frozen mode, fails with `velyr.lock is out of date with package.json:` followed by one line per affected package.
+
+The design rule is that only package commands write the lockfile, and `velyr run` never does. See [Dependency Options](/config/dependencies) for the planned commands.
+
+## Related pages
+
+- [Permission Options](/config/permissions)
+- [Server & Worker Options](/config/server)
+- [Dependency Options](/config/dependencies)
+- [Profiles](/config/profiles)
+- [Permissions guide](/guide/permissions)

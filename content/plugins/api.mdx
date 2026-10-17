@@ -1,0 +1,113 @@
+---
+title: Plugin API
+description: The requirements the planned WebAssembly plugin interface must meet, and an explicit list of what the specification has not defined yet.
+status: planned
+---
+
+<Callout type="warning" title="Mostly unspecified">
+The Plugin API specification is short. It states requirements and plugin classes. It does not define hooks, exports, imports, host functions, a permissions manifest or a versioning scheme. This page records what is specified and marks everything else as open rather than inventing it. Nothing here is implemented.
+</Callout>
+
+## Interface format <Status value="planned" />
+
+- **Format:** WebAssembly Component Model with WIT.
+- **Runtime:** Wasmtime (ADR-009), separate from the JavaScript `WebAssembly` API.
+- **Native plugins:** dynamic libraries are a compatibility and advanced path, not the recommended plugin API.
+
+## Requirements <Status value="planned" />
+
+Each item is a requirement from the spec, written as the contract an implementation must satisfy.
+
+### Explicit imported interfaces
+
+- **Type:** requirement
+- **Default:** a plugin imports nothing.
+- **CLI:** none
+
+A component can call only interfaces that its WIT world imports and the host provides.
+
+### No ambient filesystem or network
+
+- **Type:** requirement
+- **Default:** none granted
+- **CLI:** none
+
+There is no way for a plugin to reach the filesystem or the network except through an injected interface.
+
+### Capability injection
+
+- **Type:** requirement
+- **Default:** none
+- **CLI:** none
+
+The host passes narrow services into a plugin, for example read access to a single virtual store, instead of broad handles.
+
+### Memory limit
+
+- **Type:** configurable limit
+- **Default:** not specified
+- **CLI:** none
+
+Per-plugin memory ceiling. The configuration key and unit are not defined.
+
+### Execution limit
+
+- **Type:** configurable limit (fuel or epoch based, where supported)
+- **Default:** not specified
+- **CLI:** none
+
+Bounds how long a plugin call may run. The mechanism depends on what the Wasm runtime supports.
+
+### Versioned worlds
+
+- **Type:** requirement
+- **Default:** not specified
+- **CLI:** none
+
+WIT worlds are versioned so that hosts and plugins can evolve separately. The version scheme and negotiation are not defined.
+
+### Deterministic serialization
+
+- **Type:** requirement
+- **Default:** not specified
+- **CLI:** none
+
+The data crossing the host and plugin boundary uses deterministic contracts. The encoding is whatever the WIT types imply; nothing further is specified.
+
+## Plugin classes <Status value="planned" />
+
+| Class | Imports | Opt-in |
+| --- | --- | --- |
+| Pure | None | None |
+| Capability plugin | Narrow, explicit services | Granted by the host |
+| Privileged | Broader host services | Requires deployment opt-in |
+
+## Not yet specified
+
+These are the pieces a plugin author would need. None is defined in the repository, so none is described here.
+
+- **Hooks and exports.** Which functions a plugin exports, when the host calls them, and their order.
+- **Host functions and imports.** The concrete WIT interfaces offered to plugins.
+- **Permissions manifest.** How a plugin declares the capabilities it wants and how a project approves them.
+- **Versioning.** How worlds are numbered, and how a host handles a plugin built against another version.
+- **Packaging and discovery.** How plugins are distributed, located and configured.
+- **Error model.** How traps, limit violations and denied capabilities are reported.
+
+If you are evaluating Velyr, assume that anything in this list can still change. When these decisions land, this page will gain a reference entry per hook in the same format as the [configuration reference](/config).
+
+## Design sketch
+
+The sketch below is illustrative only. It shows the shape the requirements imply for a pure transformation plugin. The package name, interface name and function are invented for this page and are not a Velyr API.
+
+```wit title="design sketch (not a real interface)"
+package example:transform@0.1.0;
+
+world transformer {
+  // Pure plugin: imports nothing, so it has no host authority.
+  export transform: func(source: string) -> string;
+}
+```
+
+A capability plugin would add an `import` of one narrow interface to the world, and the host would decide whether to provide it.
+
+Related: [Plugins overview](/plugins) and [Permission Options](/config/permissions).

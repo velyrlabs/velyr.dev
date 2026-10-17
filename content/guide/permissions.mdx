@@ -1,0 +1,205 @@
+---
+title: Permissions
+description: Velyr denies filesystem, network, environment and process access by default; this page lists every permission kind, how grants are matched, and how a denial looks.
+status: available
+---
+
+A Velyr script starts with no authority beyond computing on data it already holds. It cannot read a file, open a socket, look at an environment variable or spawn a process until you grant that specific access. There are no interactive prompts: a request is either allowed or denied, and a denial is an error the script can catch.
+
+## The model
+
+Every privileged operation is checked at the host boundary, in Rust, before it runs. The JavaScript wrappers (`Velyr.readTextFile`, `fetch`, and so on) cannot skip the check.
+
+A request is decided in this order:
+
+1. If any **deny** rule covers it, it is denied.
+2. Otherwise, if any **allow** rule covers it, it is allowed.
+3. Otherwise it is denied (the default).
+
+So `--deny-*` always wins, and an empty set of rules denies everything. Rules are fixed when the isolate starts and cannot be widened afterward.
+
+## Permission kinds
+
+| Flag (allow) | Flag (deny) | Capability | Gates | Status |
+| --- | --- | --- | --- | --- |
+| `--allow-read` | `--deny-read` | `FsRead` | `Velyr.readFile`, `Velyr.readTextFile`, `Velyr.stat`; local imports outside the project root | <Status value="available" /> |
+| `--allow-write` | `--deny-write` | `FsWrite` | `Velyr.writeFile`, `Velyr.writeTextFile` | <Status value="available" /> |
+| `--allow-net` | `--deny-net` | `NetConnect` | `fetch`, `Velyr.connect`, `Velyr.connectTls` | <Status value="available" /> |
+| `--allow-listen` | `--deny-listen` | `NetListen` | `Velyr.listen`, `Velyr.listenTls` | <Status value="available" /> |
+| `--allow-env` | `--deny-env` | `EnvRead`, `EnvWrite` | `Velyr.env.get`, `has`, `set`, `toObject` | <Status value="available" /> |
+| `--allow-run` | `--deny-run` | `ProcessSpawn` | Nothing yet: no spawn API exists | <Status value="experimental" /> |
+| `--allow-native` | `--deny-native` | `NativeLoad` | Nothing yet: no native loading API exists | <Status value="experimental" /> |
+| `--allow-import` | `--deny-import` | `ImportRemote` | Nothing yet: remote (`https:`) imports are not supported | <Status value="experimental" /> |
+| `--inspect` | `--deny-inspect` | `InspectorBind` | Nothing yet: there is no inspector | <Status value="experimental" /> |
+| none (implicit) | none | `ImportLocal` | Importing local modules inside the project root | <Status value="available" /> |
+
+The experimental kinds are parsed, validated and turned into capabilities, and `Velyr.permissions.query` reports on them, but no operation consults them yet. They are reserved so that scripts and config files written today keep their meaning when the APIs arrive.
+
+A flag with no value grants (or denies) the whole kind. `-A` / `--allow-all` grants `read`, `write`, `net`, `listen`, `env`, `run` and `import`, prints a warning to stderr, and deliberately leaves out `native` and `inspect`.
+
+## Flag syntax
+
+```bash
+velyr run --allow-read=./data,./cache --allow-net=api.example.com:443 main.js
+```
+
+Values are attached with `=` and separated by commas. `--allow-read ./data` does not work as you might expect: the space-separated `./data` is taken as the script path. Run `velyr run --help` for the exact value names, and see the [CLI reference](/guide/cli) for the full flag list.
+
+The same grammar is available in `velyr.json` as kebab-case keys. See [Configuration](/config/permissions).
+
+```jsonc title="velyr.json"
+{
+  "permissions": {
+    "allow-read": ["./data"],
+    "allow-env": true,       // same as a bare --allow-env
+    "allow-write": false,    // same as leaving it out
+    "deny-net": ["169.254.169.254"]
+  }
+}
+```
+
+<Callout type="note" title="Flags replace config">
+If any permission flag is present, the config's whole `permissions` block is ignored. Nothing is merged. A single `--deny-net=x.com` on the command line therefore also drops every `allow-*` in `velyr.json`.
+</Callout>
+
+## Matching rules
+
+### Paths (read, write, native, local import)
+
+- Relative paths resolve against the working directory at startup. The path does not need to exist yet.
+- A grant on a directory covers its whole subtree, compared component by component. `./data` covers `./data/x.txt` but not `./data2/x.txt`.
+- `.` and `..` are resolved before comparison, so `./data/../secret` is judged as `./secret`.
+- Symlinks are resolved. A symlink inside an allowed directory that points outside it is denied, unless the target is granted too.
+- Comparison is case-insensitive on macOS and Windows.
+- An empty path, or a path containing a NUL byte, is always denied.
+- Patterns are plain paths. There are no glob characters.
+- If an allow pattern cannot be resolved it grants nothing. If a deny pattern cannot be resolved it denies the whole kind. Failures close, never open.
+
+<Callout type="warning" title="Known limits">
+A path decision describes the filesystem at the moment of the check. The source documents two gaps: `link/..` is normalized lexically before symlinks are resolved, and Unicode normalization (NFC versus NFD) is not applied.
+</Callout>
+
+### Network (net, listen)
+
+`--allow-net` takes `HOST` or `HOST:PORT`. `--allow-listen` takes `ADDR` or `ADDR:PORT`. With no port, every port matches. The CLI accepts a single port, not a range.
+
+| Pattern | Matches |
+| --- | --- |
+| `example.com` | That exact name. Names are lowercased and converted to ASCII (IDNA); one trailing dot is ignored. |
+| `*.example.com` | Subdomains only. It does not match `example.com` itself. |
+| `*` | Any hostname. |
+| `93.184.216.34`, `[2001:db8::1]` | One IP address. IPv6 literals use brackets when a port follows. |
+| `10.0.0.0/8` | An IPv4 range. IPv6 ranges cannot be written on the command line. |
+
+Things to know:
+
+- **Listen addresses must be IP addresses.** `--allow-listen=localhost` is invalid input and grants nothing; use `127.0.0.1` or `::1`.
+- **Names are judged twice.** The hostname is checked before DNS, then every address it resolves to is checked again, and the connection goes to exactly that checked address. This closes the DNS rebinding gap where a name changes its answer between check and use.
+- **Hostname grants do not reach private networks.** A grant by name, including `*`, cannot connect to a loopback, private, link-local or otherwise non-public address. To reach one, grant it explicitly (`--allow-net=127.0.0.1` or a CIDR such as `10.0.0.0/8`). The one exception is the exact name `localhost`, which may reach loopback addresses.
+- **IPv4-mapped IPv6 is the same as IPv4.** `::ffff:127.0.0.1` is treated as `127.0.0.1`.
+- **Ambiguous numeric names are rejected.** Forms such as `127.1`, `2130706433` or `0x7f.1`, which some resolvers read as IPv4, are invalid.
+- **Deny fails closed.** An invalid `--deny-net` or `--deny-listen` pattern denies every host and port.
+
+### Environment and programs
+
+Names are matched exactly, or by prefix with a single trailing `*`: `--allow-env=DATABASE_URL,AWS_*`. A bare `--allow-env` is the same as `*`.
+
+- `--allow-env` grants both reading and setting. `Velyr.env.set` changes a per-isolate overlay, never the real process environment.
+- `Velyr.env.toObject()` needs the full `*` grant. A prefix such as `AWS_*` is not enough, and variables covered by a deny rule are left out of the result.
+- `Velyr.env.has(name)` is checked like `get`, so the existence of a name you were not granted stays hidden.
+
+`--allow-run` uses the same matching for program names.
+
+### Local imports
+
+The project root is the directory of `velyr.json`, or the entry file's directory when there is no config. Everything under it is importable without a flag. Importing a local module outside it needs an `--allow-read` that covers it.
+
+Being able to import a module never lets code read that file as data: `ImportLocal` does not imply `FsRead`.
+
+## Workers
+
+A worker's authority is the intersection of three sets: its parent's, the permissions it asks for, and the deployment policy. A worker can narrow what it inherits and can never widen it.
+
+```js title="main.js"
+// Inherits the parent's permissions.
+new Worker(new URL("./job.js", import.meta.url), { type: "module" });
+
+// Asks for less. It can read HOME and nothing else from the environment.
+new Worker(new URL("./job.js", import.meta.url), {
+  type: "module",
+  velyr: { permissions: { "allow-env": ["HOME"] } },
+});
+```
+
+The `velyr.permissions` object uses the same kebab-case keys as `velyr.json`. Asking for more than the parent has (for example `"allow-all": true` under a parent that only has `--allow-env=HOME`) yields no additional access. See [Workers](/guide/workers).
+
+## Checking a permission from code
+
+`Velyr.permissions.query` asks whether the current isolate would be allowed to do something, without doing it. It never prompts and does not log a denial.
+
+```js title="query.js"
+const { state } = await Velyr.permissions.query({ name: "read", path: "./data" });
+console.log(state); // "granted" or "denied"
+```
+
+| `name` | Target field |
+| --- | --- |
+| `read`, `write`, `native` | `path` |
+| `net`, `listen` | `host`, plus an optional `port` |
+| `env` | `variable` (omit to ask about every variable) |
+| `run` | `command` (omit to ask about every program) |
+| `import` | `host` for a remote import, `path` for a local one |
+
+## What a denial looks like
+
+A denied operation throws (or rejects) a plain `Error` whose `code` property is `VELYR_PERMISSION_DENIED`. The message names the kind of access and nothing else:
+
+```text
+fs-read access denied
+```
+
+The kind is one of `fs-read`, `fs-write`, `net-connect`, `net-listen`, `env-read`, `env-write`, `process-spawn`, `import-local`, `import-remote`, `native-load` or `inspector-bind`. Test the `code`, not the message.
+
+```js title="denied.js"
+try {
+  await Velyr.readTextFile("./secrets.txt");
+} catch (error) {
+  console.log(error.code); // "VELYR_PERMISSION_DENIED"
+}
+```
+
+A denied module import fails the run with exit code 1, and stderr includes the code. Module denials use a slightly longer message, `import-local access to module denied`. See [Error Codes](/guide/errors) for the other codes.
+
+### Why targets are redacted
+
+The error message never contains the path, host or variable name that was refused. The structured log event for the denial does not either; it records only the kind and the length of the target:
+
+```text
+velyr.permission.denied  op=op_env_get kind=env-read target_redacted=<redacted len=6> isolate_id=0
+```
+
+(The exact layout depends on `--log-format`.) The event is emitted at `warn` level, so the default `VELYR_LOG=warn` filter shows it on stderr.
+
+This follows the runtime specification: secrets and environment contents must not be emitted by default, and logs and error messages routinely end up in terminals, CI output and error trackers. An end-to-end test sets a secret environment variable, triggers denials with and without a partial grant, and asserts that the value appears in neither stdout nor stderr. The filesystem layer also authorizes a path as given before checking whether it exists, so a caller without a grant cannot use the error to learn whether a file is there.
+
+<Callout type="note" title="Module resolution is the exception">
+The module loader checks that an import target exists before it consults permissions, so for local imports the difference between `VELYR_NOT_FOUND` and `VELYR_PERMISSION_DENIED` can reveal whether a file exists outside your grant. The source lists this as a known limit.
+</Callout>
+
+## Examples
+
+```bash title="Read one folder, write another"
+velyr run --allow-read=./input --allow-write=./output main.js
+```
+
+```bash title="One API host, one variable"
+velyr run --allow-net=api.example.com:443 --allow-env=API_TOKEN main.js
+```
+
+```bash title="Everything except a secrets folder and cloud metadata"
+velyr run -A --deny-read=./secrets --deny-net=169.254.169.254 main.js
+```
+
+```bash title="Call a local service on loopback"
+velyr run --allow-net=127.0.0.1:8080 main.js
+```

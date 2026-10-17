@@ -1,0 +1,103 @@
+---
+title: Server & Worker Options
+description: Reference for the worker count and resource quota options in `velyr.json`, with the status of each.
+status: experimental
+---
+
+Two top-level keys control how much work Velyr will do in parallel and how many native resources a program may hold: `workers` and `quotas`. They behave very differently today. `quotas` is enforced for most classes, while `workers` is parsed and validated but not used.
+
+<Callout type="note">
+There is no `velyr serve` command and no `--workers` flag yet. The CLI exposes `velyr run` only. The multicore design lives in ADR-014; see the [server guide](/guide/server) and [workers guide](/guide/workers) for the APIs themselves.
+</Callout>
+
+## workers <Status value="experimental" />
+
+- **Type:** `number | "auto"` (a non-negative 32-bit integer, or the string `auto`)
+- **Default:** unset (the design default is 1 worker)
+- **CLI:** none today. The design names `velyr serve --workers=N|auto`, which does not exist yet.
+
+The number of isolates a multicore server should start. The file format accepts an integer or the exact string `auto` and rejects anything else; `"workers": "many"` fails config loading. The value is not read by `velyr run`, so setting it has no effect.
+
+The design in ADR-014 is that multicore is opt-in and the default is one worker. `auto` is meant to pick the smaller of the available parallelism (honoring a cgroup CPU quota) and the memory budget divided by a per-worker estimate, which starts at 64 MiB until it is measured. None of that is implemented.
+
+```json title="velyr.json"
+{ "workers": "auto" }
+```
+
+Do not confuse this key with `quotas.workers`, which is a different setting described below.
+
+## quotas <Status value="available" />
+
+- **Type:** object with optional fields `files`, `sockets`, `listeners`, `workers`, `timers`, `body_bytes`
+- **Default:** each field falls back to its own default (below)
+- **CLI:** none
+
+Per-class limits on native resources held at the same time by one isolate. Each field is a non-negative integer. Unset fields keep their default, unknown fields are rejected, and note that `body_bytes` is spelled with an underscore, unlike the kebab-case permission keys.
+
+When a reservation would pass the limit, the operation fails with a `VELYR_QUOTA_EXCEEDED` error whose message is `<class> quota exceeded`, and a structured `velyr.quota.denied` event is logged at warn level. Limits are checked atomically, so concurrent callers cannot overshoot. Releasing a resource returns its unit.
+
+```json title="velyr.json"
+{
+  "quotas": {
+    "listeners": 4,
+    "sockets": 256,
+    "body_bytes": 16777216
+  }
+}
+```
+
+Limits apply to the main isolate. A worker isolate always starts with default quotas; the config's `quotas` block is not forwarded to it. Every worker still consumes one `workers` unit from its parent's counter.
+
+The six classes:
+
+### quotas.files <Status value="experimental" />
+
+- **Type:** `integer`
+- **Default:** `4096`
+- **CLI:** none
+
+Open file handles. The class and its default exist in the resource table, but the file APIs do not reserve from it yet, so lowering it does not limit file opens today.
+
+### quotas.sockets <Status value="available" />
+
+- **Type:** `integer`
+- **Default:** `16384`
+- **CLI:** none
+
+Open sockets, including connections opened by `fetch`.
+
+### quotas.listeners <Status value="available" />
+
+- **Type:** `integer`
+- **Default:** `1024`
+- **CLI:** none
+
+Open network listeners.
+
+### quotas.workers <Status value="available" />
+
+- **Type:** `integer`
+- **Default:** `64`
+- **CLI:** none
+
+How many worker isolates the program may hold at once through `new Worker`. This caps the count of created workers; it does not choose how many a server starts, which is the top-level `workers` key.
+
+### quotas.timers <Status value="experimental" />
+
+- **Type:** `integer`
+- **Default:** `1000000`
+- **CLI:** none
+
+Pending timers. The value is accepted and validated, but no code reserves from this class yet, so timers are not limited by it today.
+
+### quotas.body_bytes <Status value="available" />
+
+- **Type:** `integer` (bytes)
+- **Default:** `1073741824` (1 GiB)
+- **CLI:** none
+
+Bytes of HTTP body data in flight. When the quota refuses more data, the body stream ends with a quota error rather than buffering without bound.
+
+## Limits that are not configurable
+
+The runtime core has a hard JS heap limit and a wall-clock budget per synchronous execution, and exceeding either ends the run with a quota error (`heap` or `cpu`). `velyr run` sets neither, and `velyr.json` has no key for them.

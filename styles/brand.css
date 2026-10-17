@@ -1,0 +1,96 @@
+/* Brand page */
+.brand-page {
+  padding-top: 48px;
+}
+
+.brand-page h1 {
+  font-size: clamp(40px, 7vw, 80px);
+}
+
+.brand-section {
+  margin-top: 72px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.brand-section > h2 {
+  font-size: clamp(24px, 3.4vw, 36px);
+  margin-bottom: 24px;
+}
+
+.brand-lead {
+  margin-top: 20px;
+  max-width: 60ch;
+  color: var(--fg-muted);
+  font-size: 19px;
+}
+
+.brand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 16px;
+}
+
+.brand-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.brand-tile-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--radius);
+}
+
+.brand-tile-art img {
+  max-height: 70%;
+  width: auto;
+}
+
+.brand-tile a {
+  font-weight: 600;
+}
+
+.swatch {
+  height: 72px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.say-avoid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 24px;
+}
+
+.say-avoid ul {
+  margin: 12px 0 0;
+  padding-left: 1.2em;
+}
+
+.dont-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+  gap: 16px;
+}
+
+.dont-grid figure {
+  margin: 0;
+}
+
+.dont-grid figcaption {
+  margin-top: 8px;
+  font-size: 15px;
+}
+
+/* Brand sections already draw the rule; drop the prose h2 rule so it is not doubled. */
+.brand-section.prose > h2 {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}

@@ -1,0 +1,110 @@
+---
+title: Workers
+description: Run ES modules on separate isolates with narrowed permissions, structured-clone messaging and per-class resource quotas.
+status: available
+---
+
+<Status value="available" />
+
+A Velyr worker is a separate isolate on its own OS thread, with its own JS heap, microtask queue, event loop, permission context and quota context (ADR-010, ADR-014, `docs/specs/worker-api.md`). Nothing mutable is shared between isolates: workers talk to the parent by message passing.
+
+## Quick start
+
+```js title="main.mjs"
+const worker = new Worker(new URL("./square.mjs", import.meta.url), { type: "module" });
+
+worker.onmessage = (event) => {
+  console.log(event.data); // 4, 9, 16
+};
+for (const n of [2, 3, 4]) worker.postMessage(n);
+```
+
+```js title="square.mjs"
+self.onmessage = (event) => {
+  self.postMessage(event.data * event.data);
+};
+```
+
+```bash
+velyr run main.mjs
+```
+
+A worker that is still alive keeps the parent running. Call `worker.terminate()` when you are done, or `Velyr.unrefWorker(worker)` to let the parent exit while the worker runs.
+
+## JS API
+
+| API | Behavior | Status |
+| --- | --- | --- |
+| `new Worker(url, options)` | Spawns a module worker. `url` may be a string or `URL`; a relative URL resolves against the module that called `new Worker` | <Status value="available" /> |
+| `options.type` | Only `"module"` (the default). Any other value, including `"classic"`, throws `TypeError` | <Status value="available" /> |
+| `options.name` | Sets the worker's `name` | <Status value="available" /> |
+| `options.velyr.permissions` | Narrows the worker's authority; see below. A Velyr extension, kept out of standard options | <Status value="available" /> |
+| `worker.postMessage(message, transfer)` | Structured-clones `message` to the worker | <Status value="available" /> |
+| `worker.onmessage`, `onmessageerror`, `onerror` and `addEventListener` | Standard event handlers; `error` events carry `message`, `filename`, `lineno`, `colno` | <Status value="available" /> |
+| `worker.terminate()` | Stops the worker (order below) | <Status value="available" /> |
+| `Velyr.unrefWorker(worker)` | Lets the parent exit while the worker is still running | <Status value="available" /> |
+| `MessageChannel`, `MessagePort`, `BroadcastChannel` | A transferred port talks directly to the worker; `BroadcastChannel` reaches across isolates | <Status value="available" /> |
+
+Inside a worker the global object also provides `self`, `name`, `postMessage`, `close`, `reportError`, and `addEventListener`/`removeEventListener`/`dispatchEvent`. Workers can spawn workers.
+
+## Permissions
+
+A worker never gains authority its parent lacks. The effective set is:
+
+```text
+effective = parent ∩ requested ∩ deployment_policy
+```
+
+- With no `velyr.permissions`, the worker may use whatever its parent can.
+- With `velyr.permissions`, the object uses the same grammar as the CLI flags and the `permissions` block of `velyr.json` (kebab-case keys such as `"allow-env"`), and can only narrow what the parent holds.
+- The `velyr run` CLI has no separate deployment policy source, so the policy is the main isolate's own authority.
+
+```js title="narrow.mjs"
+const worker = new Worker(new URL("./job.mjs", import.meta.url), {
+  type: "module",
+  velyr: { permissions: { "allow-env": ["HOME"] } },
+});
+```
+
+Run as `velyr run --allow-env=HOME,USER narrow.mjs`, the worker sees `HOME` but not `USER`. Run with only `--allow-env=HOME`, a worker that asks for `"allow-all": true` still gets only `HOME`. Both cases are covered by `crates/cli/tests/workers.rs`.
+
+<Callout type="note">
+Observed behavior: when `velyr.permissions` is given, the worker's quotas are the defaults, not the `quotas` block of the parent's `velyr.json`. Without it the worker also uses default quotas.
+</Callout>
+
+## Messages and structured clone
+
+Messages are serialized with the engine's structured clone (V8's `ValueSerializer` in `engine-v8`) into a `SerializedValue`, moved over a channel, and deserialized in the receiving isolate. Ports can be transferred.
+
+Each channel has a bounded queue. When it is full, `postMessage` fails with `VELYR_QUOTA_EXCEEDED` instead of letting memory grow (limit 10000 in the test fixture).
+
+## Resource quotas
+
+Quotas are per-class counters that fail an operation with `QuotaExceeded` rather than exhausting the host. They come from the `runtime-resources` crate and are set with the `quotas` key of `velyr.json`; unset classes use the defaults.
+
+| `QuotaClass` | `velyr.json` key | Default limit |
+| --- | --- | --- |
+| Files | `files` | 4096 |
+| Sockets | `sockets` | 16384 |
+| Listeners | `listeners` | 1024 |
+| Workers | `workers` | 64 |
+| Timers | `timers` | 1,000,000 |
+| Body bytes in flight | `body_bytes` | 1 GiB (1073741824) |
+
+```json title="velyr.json"
+{
+  "quotas": { "workers": 4, "timers": 10000 }
+}
+```
+
+Each worker reserves one `workers` unit from its parent's quota for as long as its thread runs. A worker's heap limit never exceeds the parent's, and nested workers inherit it. For the config schema see [Configuration](/config).
+
+## Termination
+
+`terminate()` follows the spec order: new worker ops start failing and the shutdown token is cancelled; running JS is interrupted; the event loop stops and discards late completions; the op context closes every resource the worker held; the isolate is destroyed. A worker stuck in a busy loop is stopped this way (`terminate_stops_a_busy_worker` in the CLI tests).
+
+## Not implemented
+
+- Classic workers (`type: "classic"`, `importScripts`).
+- Explicit shared memory. The default is no shared mutable JS state; `docs/architecture/scheduler-workers.md` treats shared memory as a separate future feature with its own semantics.
+- Internal server workers for [multicore serving](/guide/server). The public `Worker` API and the planned server scheduler are separate layers by design.

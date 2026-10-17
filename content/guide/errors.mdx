@@ -1,0 +1,64 @@
+---
+title: Error Codes
+description: Every stable VELYR_* error code, what it means, and how errors appear in JavaScript and in logs.
+status: available
+---
+
+Errors raised by the Velyr runtime carry a stable, machine-readable code. Match on the code, not on the message text: messages may be reworded, but renaming a code is a breaking change and adding one is not.
+
+## Codes
+
+There are 12 codes, defined in `crates/runtime-errors`.
+
+| Code | Meaning |
+| --- | --- |
+| `VELYR_PERMISSION_DENIED` | The operation was denied by the permission model. See [Permissions](/guide/permissions). |
+| `VELYR_QUOTA_EXCEEDED` | A resource quota or limit was exceeded. The message is `<class> quota exceeded`. |
+| `VELYR_NOT_FOUND` | The requested file, entry or resource does not exist. Module resolution failures use this code. |
+| `VELYR_ALREADY_EXISTS` | The target already exists and the operation does not allow overwriting. |
+| `VELYR_INVALID_DATA` | Input data is malformed or fails validation. |
+| `VELYR_NETWORK` | A network operation failed (connection, DNS, reset). |
+| `VELYR_TLS` | TLS negotiation or certificate validation failed. |
+| `VELYR_TIMEOUT` | The operation did not finish within its deadline. |
+| `VELYR_CANCELLED` | The operation was cancelled before completion. The message is `operation cancelled`. |
+| `VELYR_UNSUPPORTED` | The feature or platform is not supported by this build. |
+| `VELYR_BAD_RESOURCE` | A resource id is invalid, closed or of the wrong kind. The message is `bad resource id`. |
+| `VELYR_INTERNAL` | An internal invariant was violated. This is a bug in Velyr; please report it. |
+
+The quota classes configurable in `velyr.json` are `files`, `sockets`, `listeners`, `workers`, `timers` and `body_bytes`. A run can also be stopped by `heap` or `cpu` limits, which use the same code.
+
+## In JavaScript
+
+Errors thrown by host operations are plain `Error` objects with an extra `code` string property. They are not a subclass, so test the property:
+
+```js title="handle-errors.js"
+try {
+  await Velyr.readTextFile("./missing.txt");
+} catch (error) {
+  switch (error.code) {
+    case "VELYR_PERMISSION_DENIED":
+      console.log("no read grant");
+      break;
+    case "VELYR_NOT_FOUND":
+      console.log("no such file");
+      break;
+    default:
+      throw error;
+  }
+}
+```
+
+Two things to keep in mind:
+
+- Argument validation failures, such as passing a number where a path is expected, throw a standard `TypeError` with no `code`.
+- Web APIs follow their specifications where those define `DOMException` errors, so those cases are `DOMException` objects rather than `VELYR_*` errors.
+
+## On the command line
+
+When an error is not caught, `velyr run` prints it to stderr and exits 1. Module loading errors are prefixed with the code, for example `error: VELYR_NOT_FOUND: ...`. Uncaught exceptions print `Uncaught ` followed by the message and stack. See [Command Line Interface](/guide/cli#output-and-exit-codes).
+
+## In logs
+
+Permission denials also produce a structured log event. The event is named `velyr.permission.denied` and records the operation, the permission kind, the isolate id and the length of the refused target, but never the target itself. Use `--log-format json` for machine-readable output. See [Permissions](/guide/permissions#why-targets-are-redacted).
+
+Inside the runtime, a `VelyrError` also holds optional context values. Context is redacted by default and printed only when it was explicitly marked as safe, so secrets attached to an error do not leak into its display or debug output.

@@ -1,0 +1,66 @@
+---
+title: Web APIs
+description: Which Web Platform APIs Velyr installs as globals today, which are planned, and how conformance will be measured.
+---
+
+Velyr follows a web-standards-first rule (ADR-002): server features are exposed through Web APIs wherever a standard exists, and Velyr-specific features live under the `Velyr` namespace instead of patching standard prototypes. The baseline target is the Minimum Common Web API.
+
+Every API below is installed on a fresh isolate by `velyr run` in all four build profiles (`minimal`, `web`, `node`, `full`). Pure-computation APIs need no permission. APIs that touch the network are gated by [permissions](/guide/permissions).
+
+## Installed today
+
+| API | Globals | Crate | Status |
+| --- | --- | --- | --- |
+| Timers | `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`, `queueMicrotask` | `web-core` | <Status value="available" /> |
+| Events | `Event`, `CustomEvent`, `EventTarget` | `web-core` | <Status value="available" /> |
+| Abort | `AbortController`, `AbortSignal` | `web-core` | <Status value="available" /> |
+| `DOMException` | `DOMException` | `web-core` | <Status value="available" /> |
+| URL | `URL`, `URLSearchParams` | `web-core` | <Status value="available" /> |
+| Encoding | `TextEncoder`, `TextDecoder`, `atob`, `btoa` | `web-core` | <Status value="available" /> |
+| Performance | `performance`, `Performance`, `PerformanceEntry`, `PerformanceMark`, `PerformanceMeasure`, `PerformanceObserver`, `PerformanceObserverEntryList` | `web-core` | <Status value="available" /> |
+| `navigator` | `navigator`, `Navigator` | `web-core` | <Status value="available" /> |
+| `structuredClone` | `structuredClone` (uses the engine's serializer; V8 provides it) | `web-core` | <Status value="available" /> |
+| Streams | `ReadableStream` (default, byte, BYOB readers), `WritableStream`, `TransformStream`, `CountQueuingStrategy`, `ByteLengthQueuingStrategy`, `TextEncoderStream`, `TextDecoderStream`, `CompressionStream`, `DecompressionStream` | `web-streams` | <Status value="available" /> |
+| Fetch | `fetch`, `Headers`, `Request`, `Response` | `web-fetch` | <Status value="available" /> |
+| Web Crypto | `crypto`, `Crypto`, `SubtleCrypto`, `CryptoKey` | `web-crypto` | <Status value="available" /> |
+| Messaging | `MessageChannel`, `MessagePort`, `MessageEvent`, `ErrorEvent`, `BroadcastChannel` | `runtime-workers` | <Status value="available" /> |
+| Workers | `Worker` (module workers only) | `runtime-workers` | <Status value="available" /> |
+| Console | `console` | `runtime-ops` | <Status value="available" /> |
+
+"Available" means installed by `velyr run` and exercised by tests in this repository. It does not mean the API passes the Web Platform Tests; no WPT results exist yet (see [Conformance](#conformance)).
+
+### Details worth knowing
+
+- **Compression formats**: `CompressionStream` and `DecompressionStream` accept `gzip`, `deflate` and `deflate-raw`.
+- **Web Crypto algorithms** present in the implementation: SHA-1/256/384/512 digests, HMAC, AES-CBC, AES-CTR, AES-GCM, AES-KW, RSA-OAEP, RSA-PSS, RSASSA, ECDSA, ECDH, Ed25519, X25519, PBKDF2 and HKDF. `crypto.getRandomValues` and `crypto.randomUUID` are included. Check the source for the exact curve and parameter coverage before relying on a specific combination.
+- **Fetch** goes through `io-http` (hyper) and rustls. Requests need a network grant such as `--allow-net=api.example.com`. Response bodies are streams backed by Web Streams.
+- **Worker scope**: inside a worker, `postMessage`, `close`, `self`, `name`, `reportError` and the event-listener functions exist on the global object. See [Workers](/guide/workers).
+
+## Not installed yet
+
+| API | Notes | Status |
+| --- | --- | --- |
+| `Blob`, `File` | `Response.blob()` is defined only when `Blob` exists, so it is absent today | <Status value="planned" /> |
+| `FormData` | Required for `Request`/`Response` form bodies | <Status value="planned" /> |
+| `URLPattern` | Listed in the Minimum Common Web API target | <Status value="planned" /> |
+| `WebSocket` | Scheduled with the Phase 04 web runtime plan; no client or server code exists | <Status value="planned" /> |
+| `WebAssembly` | Provided by V8 itself, but Velyr has no tests or permission review for it yet. Do not treat it as supported | <Status value="experimental" /> |
+
+## Velyr namespace
+
+Velyr-specific features sit under the global `Velyr` object, never on standard prototypes. Today it carries file and socket helpers (`Velyr.readFile`, `Velyr.connect`, `Velyr.listen`, `Velyr.connectTls`, `Velyr.listenTls`), `Velyr.env`, `Velyr.permissions.query` and `Velyr.unrefWorker`. All are permission-gated. `Velyr.serve` is described in an ADR but does not exist yet; see [Server and multicore](/guide/server).
+
+## Conformance
+
+Velyr's rule is that a compatibility status is evidence-backed and never edited by hand (ADR-015, `docs/COMPATIBILITY-MATRIX.md`).
+
+| Suite | Plan | State today |
+| --- | --- | --- |
+| [test262](https://github.com/tc39/test262) (ECMAScript) | `velyr-test262` runner against `engine-v8` and `engine-native`, with committed expected-failure manifests | Runner exists. Results are generated locally and are not published |
+| [Web Platform Tests](https://web-platform-tests.org) | `velyr-wpt` runner and a versioned `compat/wpt/manifest.txt` selecting server-relevant tests | Planned. The runner crate, fetch script and manifest do not exist yet |
+
+Not every browser test is meaningful for a server runtime, so the WPT selection will be explicit and versioned. Pass rates will be published with the commit they were measured on and the raw result files, not before.
+
+<Callout type="note">
+`docs/COMPATIBILITY-MATRIX.md` in the repository is still a template that marks every area "Planned". It is out of date relative to the code on this page.
+</Callout>

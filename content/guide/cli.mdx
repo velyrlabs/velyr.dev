@@ -1,0 +1,173 @@
+---
+title: Command Line Interface
+description: Reference for the velyr binary as it exists today, which has one subcommand (run), one global option, and a set of permission flags.
+---
+
+The `velyr` binary currently implements one subcommand, `velyr run`. Everything on this page is taken from `crates/cli` in the source tree. Commands that are described in the design documents but not implemented yet are listed separately under [Planned commands](#planned-commands).
+
+## Synopsis
+
+```text
+velyr [--log-format FORMAT] run [PERMISSION FLAGS] FILE
+velyr --version
+velyr --help
+```
+
+Running `velyr` with no subcommand prints nothing and exits 0. `velyr --version` prints `velyr 0.1.0-alpha.1` (the workspace version).
+
+## Global options
+
+| Option | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `--log-format` | `pretty` or `json` | `pretty` | Format of runtime logs. Logs always go to stderr, so stdout carries only program output. |
+
+`--log-format` is the only global option. It can appear before or after the subcommand. An unknown value is rejected by the argument parser.
+
+### Environment variables
+
+| Variable | Meaning |
+| --- | --- |
+| `VELYR_LOG` | Log filter in `tracing` `EnvFilter` syntax. Default is `warn`. Set `VELYR_LOG=debug` to see per-operation spans. |
+| `VELYR_LEAK_CHECK` | When set to `1`, the run fails if native resources such as files or sockets are still open at shutdown. Intended for tests and diagnostics. |
+
+Log spans are named `velyr.<crate>.<op>`, for example `velyr.cli.run`. Environment values and secrets are never recorded as span fields.
+
+## velyr run
+
+```text
+velyr run [PERMISSION FLAGS] FILE
+```
+
+Runs one script in a fresh isolate on the V8 engine by default (`--engine native` selects the experimental native engine in feature-gated builds), with the built-in globals installed, and exits when the event loop has no more work.
+
+### How the entry file is loaded
+
+| Extension | Loaded as |
+| --- | --- |
+| `.js`, `.mjs` | ES module. Static `import`, dynamic `import()` and top-level `await` work. |
+| anything else | Classic script. |
+
+TypeScript files are not supported by `velyr run` yet. The TypeScript transform exists as a crate but is not linked into the binary. See [Roadmap and Status](/guide/roadmap).
+
+Bare specifiers (`import "pkg"`) resolve through `node_modules` and `package.json` `exports` and `imports`. There is no installer; you provide `node_modules` yourself. See [Modules](/guide/modules).
+
+### Config discovery
+
+Before running, `velyr` walks up from the current working directory and loads the first `velyr.json` it finds. Files are parsed as JSONC (comments and trailing commas are allowed). Unknown keys are an error that names the key.
+
+```jsonc title="velyr.json"
+{
+  // Same grammar as the CLI flags, in kebab-case.
+  "permissions": {
+    "allow-read": ["./data"],
+    "allow-net": ["api.example.com:443"],
+    "allow-env": true
+  },
+  "quotas": { "timers": 10000 }
+}
+```
+
+| Key | Status | Notes |
+| --- | --- | --- |
+| `permissions` | <Status value="available" /> | Applied. See [Permissions](/guide/permissions). |
+| `quotas` | <Status value="available" /> | Applied. Keys: `files`, `sockets`, `listeners`, `workers`, `timers`, `body_bytes`. Unset keys use built-in defaults. |
+| `workers` | <Status value="experimental" /> | Accepts an integer or `"auto"`, validated but not used yet. |
+| `imports` | <Status value="experimental" /> | Import map, validated but not used yet. |
+| `compilerOptions` | <Status value="experimental" /> | `jsx` and `jsxImportSource`, validated but not used yet. |
+
+For the full config reference, see [Configuration](/config).
+
+### Permission flags
+
+Scripts start with no access to the filesystem, network, environment or processes. Flags grant access; see [Permissions](/guide/permissions) for the matching rules.
+
+<Callout type="warning" title="Flag syntax">
+Values are attached with `=` and separated by commas: `--allow-read=./data,./cache`. A space is not accepted as the separator, so `--allow-read ./data` grants everything under `read` and treats `./data` as the script path. A flag with no value grants the whole kind.
+</Callout>
+
+| Flag | Value | Grants |
+| --- | --- | --- |
+| `-A`, `--allow-all` | none | Everything except native loading and the inspector. Prints a warning to stderr. |
+| `--allow-read` | `PATHS` | Reading files and directories. |
+| `--allow-write` | `PATHS` | Writing files. |
+| `--allow-net` | `HOST[:PORT]` | Outbound connections, including `fetch`. |
+| `--allow-listen` | `ADDR[:PORT]` | Listening sockets. `ADDR` must be an IP address. |
+| `--allow-env` | `NAMES` | Reading and setting environment variables. |
+| `--allow-run` | `PROGRAMS` | Spawning processes. Accepted, but no spawn API exists yet. |
+| `--allow-native` | `PATHS` | Loading native libraries. Accepted, but no loading API exists yet. |
+| `--allow-import` | `HOSTS` | Importing modules from remote hosts. Accepted, but remote imports are not supported yet. |
+| `--inspect` | `ADDR` | Binding an inspector. Accepted, but no inspector exists yet. |
+
+Every kind has a matching deny flag that always wins over allow flags: `--deny-read`, `--deny-write`, `--deny-net`, `--deny-listen`, `--deny-env`, `--deny-run`, `--deny-native`, `--deny-import` and `--deny-inspect`. There is no `--deny-all`.
+
+Permission flags belong to `run`, so they go after it:
+
+```bash
+velyr run --allow-read=./data --deny-read=./data/secrets main.js
+```
+
+<Callout type="note" title="Flags replace config">
+If you pass any permission flag, even a single `--deny-*`, the `permissions` block of `velyr.json` is ignored entirely. The two are never merged. `quotas` from the config still apply.
+</Callout>
+
+### Output and exit codes
+
+`velyr run` exits 0 when the script and its event loop finish normally. Any failure exits 1 and prints a message to stderr. Messages produced by `velyr` itself:
+
+| Situation | Stderr starts with |
+| --- | --- |
+| Uncaught exception | `Uncaught ` followed by the message and stack |
+| Unhandled promise rejection | `Uncaught (in promise) ` |
+| Script file cannot be read | `error: ` |
+| Module cannot be resolved, read or authorized | `error: VELYR_<CODE>: ` (see [Error Codes](/guide/errors)) |
+| Top-level `await` that can never settle | `error: top-level await never settled` |
+| Resource quota exceeded | `VELYR_QUOTA_EXCEEDED: ` |
+| Isolate terminated | `execution terminated` |
+| Open resources with `VELYR_LEAK_CHECK=1` | `error: N resource(s) left open at shutdown:` |
+| Invalid config or flag value | `error: invalid ...`, naming the file or the flag |
+
+`console.log`, `console.info` and `console.debug` write to stdout. `console.warn` and `console.error` write to stderr.
+
+Usage errors found by the argument parser itself (an unknown flag, an invalid `--log-format`) are reported by it and exit with a failure status.
+
+### Examples
+
+```bash title="Run with no access"
+velyr run main.js
+```
+
+```bash title="Read one directory, call one host"
+velyr run --allow-read=./data --allow-net=api.example.com:443 main.js
+```
+
+```bash title="Everything, with a warning"
+velyr run -A main.js
+```
+
+```bash title="Machine-readable logs"
+VELYR_LOG=debug velyr --log-format json run main.js
+```
+
+## Planned commands
+
+None of the following exist in the binary today. They come from the design documents and may change before they ship.
+
+| Command | Purpose | Source | Status |
+| --- | --- | --- | --- |
+| `velyr serve main.ts` | Run a module that exports a `fetch` handler, optionally across several isolates with `--workers` (a number or `auto`). | ADR-014 | <Status value="planned" /> |
+| `velyr add <pkg>[@range]` | Add a dependency and update `velyr.lock`. | ADR-013 | <Status value="planned" /> |
+| `velyr remove <pkg>` | Remove a dependency. | ADR-013 | <Status value="planned" /> |
+| `velyr install [--frozen]` | Install from the lockfile. `--frozen` fails on any drift. | ADR-013 | <Status value="planned" /> |
+| `--allow-scripts=<pkg,...>` | Allow lifecycle scripts for named packages. Scripts are denied by default. | ADR-013 | <Status value="planned" /> |
+| `velyr test` | Test runner. | PRD section 7 | <Status value="planned" /> |
+| `velyr bench` | Benchmark runner. | PRD section 7 | <Status value="planned" /> |
+| `velyr check` | Check a project. | PRD section 7 | <Status value="planned" /> |
+| `velyr dev` | Development server. | PRD section 7 | <Status value="planned" /> |
+| `velyr build --profile=NAME` | Build a runtime with a chosen set of capabilities. The profiles named are `minimal`, `web`, `node` and `full`. | PRD section 7 | <Status value="planned" /> |
+| `velyr compat <dir>` | Compatibility report for a project. | PRD section 7 | <Status value="planned" /> |
+
+The PRD lists `velyr dev`, `velyr build`, `velyr check` and `velyr compat` without a specification. Treat their names as provisional.
+
+<Callout type="note" title="Build profiles today">
+The `velyr-cli` crate has Cargo features named `profile-minimal`, `profile-web`, `profile-node` and `profile-full`, with `profile-full` on by default. No code reads them yet: every build installs the same set of globals.
+</Callout>
